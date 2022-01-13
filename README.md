@@ -22,24 +22,19 @@ So the overall migration process goes like this:
     Metadata](#extracting-the-wpg-metadata).
 
 2.  From the SQLite database, extract the WPG metadata and
-    convert it into XMP files, called "intermediate XMP files".
+    convert it into XMP files, called "intermediate XMP files" in
+    the following.
 
     See section [Converting the WPG
     Metadata](#converting-the-wpg-metadata).
 
-3.  Inject the metadata of the intermediate XMP files into the
-    media files with ExifTool.
+3.  Inject the metadata contained in the intermediate XMP files
+    into the media files with ExifTool.
 
-    ```
-    exiftool -tagsFromFile '%:3d%F.xmp' ~/Pictures/IMG_2882.jpg
-    ```
+    See section [Injecting the WPG
+    Metadata](#injecting-the-wpg-metadata).
 
 4.  Reread the image metadata with digiKam.
-
-An an alternative to the third step, you can also inject the
-intermediate XMP files into sidecar XMP files written by (and
-read from) digiKam, thus leaving your precious media files
-unchanged.
 
 This project has been developed and tested on "family photo
 collection scope".  Most of the media consisted of JPEGs.
@@ -59,6 +54,12 @@ However, it soon became clear that merging media metadata is a
 highly non-trivial process, so I decided to better delegate that
 to ExifTool.  (incomplete) Use ExifTool's featues to select tags,
 files to process, etc.
+
+To avoid confusion: "Tags" in WPG and digiKam denote descriptive
+attributes that can be attached to media files, like geotags or
+people tags.  In ExifTool, "tags" denote the smallest unit of
+metadata that can be processed.  A metadata unit that contains a
+WPG tag is called "keyword" in ExifTool.
 
 ## Extracting the WPG Metadata
 
@@ -157,8 +158,30 @@ files to process, etc.
 ## Converting the WPG Metadata
 
 Generally, `wpg2dk` extracts only metadata from the WPG metadata
-database which can be assigned in the right hand pane of WPG:
+database which can be assigned in the right hand pane of WPG,
+which are:
 
+- People tags
+- Geotag
+- Caption
+- Descriptive tags
+- Rating
+- Flag
+
+The general idea is that `wpg2dk` always extracts all metadata
+from the WPG metadata.  As explained in the next section, the
+rich command line interface of ExifTool can then be used to
+control what parts of that metadata are actually injected into
+the media files.
+
+You can select by their file path which media files should be
+processed by `wpg2dk`.
+
+The following rather technical sections describe in more details
+how the WPG metadata is extacted, converted, and written to the
+intermediate XMP files:
+
+- [Media File Path](#media-file-path)
 - [People tags](#people-tags)
 - [Geotag](#geotag)
 - [Caption](#caption)
@@ -166,11 +189,7 @@ database which can be assigned in the right hand pane of WPG:
 - [Rating](#rating)
 - [Flag](#flag)
 
-The following sections describe in more details how the WPG
-metadata is converted and merged with the metadata from the media
-files.
-
-### Media Path
+### Media File Path
 
 *Source*:
 
@@ -184,15 +203,17 @@ files.
 *Notes*:
 
 - `wpg2dk` expects the media files exactly where specified by the
-  WPG metadata database.  And it places the sidecar files with
-  extension `.xmp` alongside with the original media files.
+  WPG metadata database.  And it places the intermediate XMP
+  files with extension `.xmp` alongside with the original media
+  files.
 
-- When executing `wpg2dk` in conversion mode you must specify the
-  location of all volumes referenced in the WPG metadata on the
-  command line with parameter `-volmap`.
+- When executing `wpg2dk` with action `extract` you must specify
+  the location of all volumes referenced in the WPG metadata of
+  the processed media files on the command line with parameter
+  `-volmap`.
 
 - To get an idea what volumes are used and what their path should
-  be, run `wpg2dk` in check mode.
+  be, run `wpg2dk` with action `list`.
 
 ### People Tags
 
@@ -203,6 +224,8 @@ files.
     from      tblregion r
     left join tblperson p on r.personid = p.personid
     where     r.objectid = ...
+
+    select (syncstatus & 2048) = 2048 from tblobject where objectid = ...
 
 *Type*: non-negative integer (`r.personid`), UTF-8 encoded string
 (`p.name`), float in range [0.0, 1.0) (all others)
@@ -219,17 +242,32 @@ files.
         <!-- for known persons -->
         <rdf:li rdf:parseType='Resource'>
          <MPReg:PersonDisplayName>[person-name]</MPReg:PersonDisplayName>
-         <MPReg:Rectangle>0.572266, 0.166911, 0.064453, 0.096633</MPReg:Rectangle>
+         <MPReg:Rectangle>[left], [top], [width], [height]</MPReg:Rectangle>
         </rdf:li>
         <!-- for unknown persons -->
         <rdf:li rdf:parseType='Resource'>
-         <MPReg:Rectangle>0.762695, 0.070278, 0.069336, 0.103953</MPReg:Rectangle>
+         <MPReg:Rectangle>[left], [top], [width], [height]</MPReg:Rectangle>
         </rdf:li>
        </rdf:Bag>
       </MPRI:Regions>
      </MP:RegionInfo>
     </rdf:Description>
 
+    <rdf:Description rdf:about=''
+     xmlns:digiKam='http://www.digikam.org/ns/1.0/'>
+     <digiKam:TagsList>
+      <rdf:Seq>
+        <!-- for known persons, both attached and not attached to
+             a face region -->
+       <rdf:li>People/[person-name]</rdf:li>
+      </rdf:Seq>
+     </digiKam:TagsList>
+    </rdf:Description>
+
+    <rdf:Description rdf:about=''
+     xmlns:digiKam='http://www.digikam.org/ns/1.0/'>
+     <digiKam:ColorLabel>[people-completeness-color-label]</digiKam:ColorLabel>
+    </rdf:Description>
 
 *Notes*:
 
@@ -245,6 +283,11 @@ files.
   regions in table `tblregion`, regardless of its EXIF
   orientation.
 
+- In contrast to that, the `MP:RegionInfo` tag used as target
+  provides the region *before* applying the rotation.  Values
+  `<left>`, `<top>`, etc., are specified with a precision of 6
+  places after the decimal point.
+
 - `r.personid` for a face region equals zero if and only if that
   face has not been tagged yet ("unknown person").
 
@@ -252,8 +295,11 @@ files.
   not attached to a face region, but rather to the whole photo.
 
 - It seems that bit 12 of column `synctstatus` of table
-  `tblobject` flips to one (`|= 2048` in Perl) when all faces
-  detected by WPG have been tagged or ignored for some photo.
+  `tblobject` flips to one when all faces detected by WPG have
+  been tagged or ignored for some photo.  If you specify command
+  line option `-pccl <people-completeness-color-label>`, `wpg2dk`
+  adds the specified color label (an integer from zero to nine)
+  to the intermediate XMP of media files having that bit set.
 
 ### Geotag
 
@@ -353,25 +399,6 @@ For `l.locationname`:
      </dc:title>
     </rdf:Description>
 
-### Rating
-
-*Source*: `select rating from tblobject where objectid = ...`
-
-*Type*:   integer ranging from zero (not rated) to five (max.
-          rating)
-
-*Target*:
-
-    <rdf:Description rdf:about=''
-     xmlns:xmp='http://ns.adobe.com/xap/1.0/'>
-     <xmp:Rating>[rating]</xmp:Rating>
-    </rdf:Description>
-
-*Notes*:
-
-- `wpg2dk` always sets an explicit zero level rating to override
-  possible other rating tags.
-
 ### Descriptive Tags
 
 *Source*:
@@ -381,8 +408,8 @@ For `l.locationname`:
     left join tbllabel l on u.labelid = l.labelid
     where     u.objectid = ...
 
-*Type*: integer (`u.labelid`), UTF-8 encoded string
-(`l.labelname`)
+*Type*: integer (`u.labelid`), non-empty UTF-8 encoded string
+not containing any slashes (`l.labelname`)
 
 *Target*:
 
@@ -437,6 +464,25 @@ For `l.locationname`:
       c
       ```
 
+### Rating
+
+*Source*: `select rating from tblobject where objectid = ...`
+
+*Type*:   integer ranging from zero (not rated) to five (max.
+          rating)
+
+*Target*:
+
+    <rdf:Description rdf:about=''
+     xmlns:xmp='http://ns.adobe.com/xap/1.0/'>
+     <xmp:Rating>[rating]</xmp:Rating>
+    </rdf:Description>
+
+*Notes*:
+
+- `wpg2dk` always sets an explicit zero level rating to override
+  possible other rating tags.
+
 ### Flag
 
 *Source*: `select flagged from tblobject where objectid = ...`
@@ -447,17 +493,33 @@ For `l.locationname`:
 
     <rdf:Description rdf:about=''
      xmlns:digiKam='http://www.digikam.org/ns/1.0/'>
-     <digiKam:PickLabel>[pick-label-value]</digiKam:PickLabel>
+     <digiKam:PickLabel>[pick-label]</digiKam:PickLabel>
     </rdf:Description>
 
 *Notes*:
 
 - Table `tblobject` also provides a column `everflagged` which
-  equals one if the media has ever been flagged, otherwise
+  equals `1` if the media has ever been flagged, otherwise
   `NULL`.
 
-- You can configure the pick label value (defaulting to 3,
-  "Accepted") via command line parameter `-plv`.
+- You can configure the pick label (defaulting to 3, "Accepted")
+  via command line parameter `-pl`.
+
+## Injecting the WPG Metadata
+
+(incomplete) Describe selection of metadata to inject.  As an
+added complexity, describe how to inject only certain types of
+tags.
+
+    ```
+    (incomplete)
+    exiftool -tagsFromFile '%:3d%F.xmp' ~/Pictures/IMG_2882.jpg
+    ```
+
+An an alternative to the above procedure, you can also inject the
+intermediate XMP files into sidecar XMP files written by (and
+read from) digiKam, thus leaving your precious media files
+unchanged.
 
 ## Background and Version Information
 
