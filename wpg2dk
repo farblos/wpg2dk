@@ -130,7 +130,7 @@ sub aplmap
 
 #}}}
 
-#{{{ catnodes, readtree
+#{{{ catnodes, readtree (checked)
 
 sub catnodes
 {
@@ -182,7 +182,7 @@ sub readtree
 
     if ( (! defined( $id )) || ($id == 0) ) {
       warn( "Cannot process undefined or zero node ID", " ",
-            "(", Dumper( $node ), ")" );
+            "(", buws( Dumper( $node ) ), ")" );
       next;
     }
 
@@ -194,7 +194,7 @@ sub readtree
 
     if ( (! defined( $node->{'name'} )) ||
          (length( $node->{'name'} ) == 0) ) {
-      $node->{'name'} = "#$id";
+      $node->{'name'} = "wpg2dk-generated-#$id";
       push( @{$node->{'warnings'}},
             [ INVTAG_UNDEF_NAME, $node ] );
     }
@@ -202,15 +202,16 @@ sub readtree
     $nodes{$id} = [ $node ];
   }
 
-  # concatenate tree nodes along the path to root
+  # concatenate tag nodes along their path to root
   for my $id ( keys( %nodes ) ) {
     catnodes( $id, \%nodes );
   }
 
-  # detect and flag rootless nodes (which can result from our
+  # detect and flag rootless tag nodes (which can result from our
   # node loop detection)
   for my $nodes ( values( %nodes ) ) {
-    if ( ($nodes->[-1]->{'pid'} != 0) ) {
+    if ( (defined( $nodes->[-1]->{'pid'} )) &&
+         ($nodes->[-1]->{'pid'} != 0) ) {
       push( @{$nodes->[-1]->{'warnings'}},
             [ INVTAG_MISSING_ROOT, $nodes->[-1] ] );
     }
