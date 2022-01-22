@@ -79,7 +79,17 @@ sub bue
   return lc( $error );
 }
 
-#{{{ cavmap
+# brush up whitespace in the specified string
+sub buws
+{
+  my $s = $_[0];
+  $s =~ s/^\s+//;
+  $s =~ s/\s+$//;
+  $s =~ s/\s+/ /g;
+  return $s;
+}
+
+#{{{ cavmap (checked)
 
 # converts and verifies the specified map
 sub cavmap
@@ -93,6 +103,7 @@ sub cavmap
     }
     elsif ( $me =~ /^(.*?)(?:=(.*))?$/m ) {
       my ( $search, $repl ) = ( $1, $2 );
+      $reply //= "";
       if ( ! defined( do { package _wpg2dk; eval( '$fn =~ s/$search/$repl/g' ) } ) ) {
         usage( "Invalid map entry \"$me\" (", bue( $@ ), ")" );
       }
@@ -106,7 +117,7 @@ sub cavmap
 
 #}}}
 
-#{{{ aplmap
+#{{{ aplmap (checked)
 
 # applies the specified map to the specified file name
 sub aplmap
@@ -558,7 +569,7 @@ eval {
   }
   else {
     if ( $ion > 0 ) {
-      warn( "Cannot process $ion invalid objects. Use command \"listinv\" to list them." );
+      warn( "Cannot process $ion invalid objects. Use command \"listinv\" to list them.\n" );
     }
   }
 };
