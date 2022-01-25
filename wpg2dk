@@ -18,43 +18,67 @@ $Data::Dumper::Indent   = 1;
 $Data::Dumper::Sortkeys = 1;
 $Data::Dumper::Terse    = 1;
 
-# media object invalidation reasons
-use constant INV_DUP_OBJID       => "dup_objid";
-use constant INV_NULL_ATTRIBUTES => "null_attributes";
-use constant INV_IGNORED_FILE    => "ignored_file";
-use constant INV_UNMAPPED_FILE   => "unmapped_file";
-use constant INV_FILE_MISSING    => "file_missing";
-use constant INV_IGNORED_XFILE   => "ignored_xfile";
-use constant INV_UNMAPPED_XFILE  => "unmapped_xfile";
-use constant INV_XFILE_EXISTS    => "xfile_exists";
-use constant INV_EXIFTOOL_FAILED => "exiftool_failed";
+# media object message IDs
+use constant MSGID_DUP_OBJID         => "dup_objid";
+use constant MSGID_NULL_ATTRIBUTES   => "null_attributes";
+use constant MSGID_INVALID_REGION    => "invalid_region";
+use constant MSGID_UNDEFINED_PERSON  => "undefined_person";
+use constant MSGID_DUBIOUS_PERSON    => "dubious_person";
+use constant MSGID_INVALID_TAG       => "invalid_tag";
+use constant MSGID_DUBIOUS_TAG       => "dubious_tag";
+use constant MSGID_INVALID_GEOTAG    => "invalid_geotag";
+use constant MSGID_DUBIOUS_GEOTAG    => "dubious_geotag";
+use constant MSGID_DUP_GEOTAG        => "dup_geotag";
+use constant MSGID_IGNORED_FILE      => "ignored_file";
+use constant MSGID_UNMAPPED_FILE     => "unmapped_file";
+use constant MSGID_FILE_MISSING      => "file_missing";
+use constant MSGID_IGNORED_XFILE     => "ignored_xfile";
+use constant MSGID_UNMAPPED_XFILE    => "unmapped_xfile";
+use constant MSGID_XFILE_EXISTS      => "xfile_exists";
+use constant MSGID_EXIFTOOL_WARNINGS => "exiftool_warnings";
+use constant MSGID_EXIFTOOL_ERRORS   => "exiftool_errors";
 
-# tag tree node invalidation reasons
-use constant INVTAG_DUP_ID       => "dup_id";
-use constant INVTAG_UNDEF_NAME   => "undef_name";
-use constant INVTAG_UNDEF_PID    => "undef_pid";
-use constant INVTAG_MISSING_PID  => "missing_pid";
-use constant INVTAG_MISSING_ROOT => "missing_root";
-
-my @INV_REASONS = (
-  INV_DUP_OBJID,
-  INV_NULL_ATTRIBUTES,
-  INV_IGNORED_FILE,
-  INV_UNMAPPED_FILE,
-  INV_FILE_MISSING,
-  INV_IGNORED_XFILE,
-  INV_UNMAPPED_XFILE,
-  INV_XFILE_EXISTS,
-  INV_EXIFTOOL_FAILED
+my @MESSAGE_IDS = (
+  MSGID_DUP_OBJID,
+  MSGID_NULL_ATTRIBUTES,
+  MSGID_INVALID_REGION,
+  MSGID_UNDEFINED_PERSON,
+  MSGID_DUBIOUS_PERSON,
+  MSGID_INVALID_TAG,
+  MSGID_DUBIOUS_TAG,
+  MSGID_INVALID_GEOTAG,
+  MSGID_DUBIOUS_GEOTAG,
+  MSGID_DUP_GEOTAG,
+  MSGID_IGNORED_FILE,
+  MSGID_UNMAPPED_FILE,
+  MSGID_FILE_MISSING,
+  MSGID_IGNORED_XFILE,
+  MSGID_UNMAPPED_XFILE,
+  MSGID_XFILE_EXISTS,
+  MSGID_EXIFTOOL_WARNINGS,
+  MSGID_EXIFTOOL_ERRORS,
 );
+
+# tag tree node message IDs
+use constant TAGMSGID_DUP_ID       => "dup_id";
+use constant TAGMSGID_UNDEF_NAME   => "undef_name";
+use constant TAGMSGID_UNDEF_PID    => "undef_pid";
+use constant TAGMSGID_MISSING_PID  => "missing_pid";
+use constant TAGMSGID_MISSING_ROOT => "missing_root";
+
+# people message IDs
+use constant PPLMSGID_DUP_ID       => "dup_id";
+use constant PPLMSGID_UNDEF_NAME   => "undef_name";
 
 my %ACTIONS = (
   'list'    => 1,
   'dump'    => 1,
-  'listinv' => 1,
+  'listerr' => 1,
   'check'   => 1,
   'extract' => 1,
 );
+
+#{{{ auxilliary functions
 
 sub error
 {
@@ -68,6 +92,13 @@ sub usage
   exit( 2 );
 }
 
+# convert the specified structure to a string
+sub s2s
+{
+  local $Data::Dumper::Indent = 0;
+  return Dumper( $_[0] );
+}
+
 # brush up the specified error message
 sub bue
 {
@@ -79,17 +110,9 @@ sub bue
   return lc( $error );
 }
 
-# brush up whitespace in the specified string
-sub buws
-{
-  my $s = $_[0];
-  $s =~ s/^\s+//;
-  $s =~ s/\s+$//;
-  $s =~ s/\s+/ /g;
-  return $s;
-}
+#}}}
 
-#{{{ cavmap (checked)
+#{{{ cavmap
 
 # converts and verifies the specified map
 sub cavmap
@@ -103,7 +126,7 @@ sub cavmap
     }
     elsif ( $me =~ /^(.*?)(?:=(.*))?$/m ) {
       my ( $search, $repl ) = ( $1, $2 );
-      $reply //= "";
+      $repl //= "";
       if ( ! defined( do { package _wpg2dk; eval( '$fn =~ s/$search/$repl/g' ) } ) ) {
         usage( "Invalid map entry \"$me\" (", bue( $@ ), ")" );
       }
@@ -117,7 +140,7 @@ sub cavmap
 
 #}}}
 
-#{{{ aplmap (checked)
+#{{{ aplmap
 
 # applies the specified map to the specified file name
 sub aplmap
@@ -141,7 +164,7 @@ sub aplmap
 
 #}}}
 
-#{{{ catnodes, readtree (checked)
+#{{{ catnodes, readtree
 
 sub catnodes
 {
@@ -154,7 +177,7 @@ sub catnodes
   elsif ( (! defined( $node->{'pid'} )) ) {
     $node->{'done'} = 1;
     push( @{$node->{'warnings'}},
-          [ INVTAG_UNDEF_PID, $node ] );
+          [ TAGMSGID_UNDEF_PID, $node ] );
   }
   elsif ( ($node->{'pid'} == 0) ) {
     $node->{'done'} = 1;
@@ -162,7 +185,7 @@ sub catnodes
   elsif ( (! exists( $nodes->{$node->{'pid'}} )) ) {
     $node->{'done'} = 1;
     push( @{$node->{'warnings'}},
-          [ INVTAG_MISSING_PID, $node ] );
+          [ TAGMSGID_MISSING_PID, $node ] );
   }
   else {
     $node->{'done'} = 1;
@@ -192,14 +215,13 @@ sub readtree
     $node->{'warnings'} = [];
 
     if ( (! defined( $id )) || ($id == 0) ) {
-      warn( "Cannot process undefined or zero node ID", " ",
-            "(", buws( Dumper( $node ) ), ")" );
+      warn( "Cannot process undefined or zero node ID (", s2s( $node ), ")" );
       next;
     }
 
     if ( exists( $nodes{$id} ) ) {
       push( @{$nodes{$id}->[0]->{'warnings'}},
-            [ INVTAG_DUP_ID, $node ] );
+            [ TAGMSGID_DUP_ID, $node ] );
       next;
     }
 
@@ -207,7 +229,7 @@ sub readtree
          (length( $node->{'name'} ) == 0) ) {
       $node->{'name'} = "wpg2dk-generated-#$id";
       push( @{$node->{'warnings'}},
-            [ INVTAG_UNDEF_NAME, $node ] );
+            [ TAGMSGID_UNDEF_NAME, $node ] );
     }
 
     $nodes{$id} = [ $node ];
@@ -224,7 +246,7 @@ sub readtree
     if ( (defined( $nodes->[-1]->{'pid'} )) &&
          ($nodes->[-1]->{'pid'} != 0) ) {
       push( @{$nodes->[-1]->{'warnings'}},
-            [ INVTAG_MISSING_ROOT, $nodes->[-1] ] );
+            [ TAGMSGID_MISSING_ROOT, $nodes->[-1] ] );
     }
   }
 
@@ -233,33 +255,42 @@ sub readtree
 
 #}}}
 
-#{{{ validp
+#{{{ object error handling
 
-# returns whether the specified media object is valid
-sub validp
+# adds the specified warning to the specified media object
+sub addwarning
 {
-  return $_[0]->{'inv'} ? 0 : 1;
-}
-
-#}}}
-
-#{{{ invalidate
-
-my $ion = 0;
-my %ios = map { ($_ => []) } @INV_REASONS;
-
-# invalidates the specified media object because of the specified
-# reason and updates global invalidation data
-sub invalidate
-{
-  if ( ! $_[0]->{'inv'} ) {
-    $_[0]->{'inv'} = $_[1];
-    $ion++;
-    push( @{$ios{$_[1]}}, $_[0] );
+  if ( $main::relax_obj_warnings ) {
+    my $obj     = shift( @_ );
+    my $msgid   = shift( @_ );
+    my $message = [ $msgid, @_ ];
+    push( @{$obj->{'warnings'}}, $message );
   }
   else {
-    die "Cannot invalidate invalid object";
+    adderror( @_ );
   }
+}
+
+my %errobjs = ();
+my %errids  = map { ($_ => []) } @MESSAGE_IDS;
+
+# adds the specified error to the specified media object and
+# updates global variables on erroneous objects
+sub adderror
+{
+  my $obj     = shift( @_ );
+  my $msgid   = shift( @_ );
+  my $message = [ $msgid, @_ ];
+  push( @{$obj->{'errors'}}, $message );
+  $errobjs{$obj} = 1;
+  push( @{$errids{$msgid}}, $obj );
+}
+
+# returns whether to continue processing the specified media
+# object
+sub continuep
+{
+  return scalar( @{$_[0]->{'errors'}} ) > 0 ? 0 : 1;
 }
 
 #}}}
@@ -278,15 +309,17 @@ if ( ! exists( $ACTIONS{$action} ) ) {
   usage( "Invalid action \"$action\" specified." );
 }
 
-my $force = 0;
-my @mmap  = ();
-my @xmap  = ();
+my  $force              = 0;
+our $relax_obj_warnings = 1;
+my  @mmap               = ();
+my  @xmap               = ();
 {
   my $error = undef();
   local $SIG{'__WARN__'} = sub { $error = bue( $_[0] ) };
-  if ( ! GetOptions( "force"  => \$force,
-                     "mmap=s" => \@mmap,
-                     "xmap=s" => \@xmap ) ) {
+  if ( ! GetOptions( "force"               => \$force,
+                     "relax_obj_warnings!" => \$relax_obj_warnings,
+                     "mmap=s"              => \@mmap,
+                     "xmap=s"              => \@xmap ) ) {
     usage( "Invalid commandline parameters specified ($error)." );
   }
 }
@@ -306,19 +339,19 @@ else {
   usage( "No database name specified." );
 }
 
-my @globs = ();
-my @invs  = ();
-if ( $action ne "listinv" ) {
-  @globs = @ARGV;
-  @invs  = ();
+my @globs  = ();
+my @msgids = ();
+if ( $action ne "listerr" ) {
+  @globs  = @ARGV;
+  @msgids = ();
 }
 else {
-  @globs = ();
-  @invs  = @ARGV;
+  @globs  = ();
+  @msgids = @ARGV;
 
-  for my $inv ( @invs ) {
-    if ( ! grep { $_ eq $inv } @INV_REASONS ) {
-      usage( "Invalid invalidation reason \"$inv\" specified." );
+  for my $msgid ( @msgids ) {
+    if ( ! grep { $_ eq $msgid } @MESSAGE_IDS ) {
+      usage( "Invalid message ID \"$msgid\" specified." );
     }
   }
 }
@@ -348,8 +381,7 @@ eval {
               o.flagged    flag,
               v.volumeid   volid,
               p.path       pn,
-              o.filename   fn,
-              0            inv
+              o.filename   fn
     from      tblobject o
     left join tblpath   p on o.filepathid = p.pathid
     left join tblvolume v on p.volumeid   = v.volumeid
@@ -361,6 +393,9 @@ eval {
   my %objs = ();
   my @objs = ();
   while ( my $obj = $sth->fetchrow_hashref() ) {
+    $obj->{'errors'}   = [];
+    $obj->{'warnings'} = [];
+
     my $objid = $obj->{'objid'};
 
     if ( (defined( $objid )) &&
@@ -368,7 +403,7 @@ eval {
       $objs{$objid} = $obj;
     }
     elsif ( (defined( $objid )) ) {
-      invalidate( $obj, INV_DUP_OBJID );
+      addwarning( $obj, MSGID_DUP_OBJID, $objs{$objid} );
     }
 
     $obj->{'people'} = [];
@@ -378,37 +413,99 @@ eval {
     push( @objs, $obj );
   }
 
-  # read tags
-  $sth = $dbh->prepare( q{
-    select labelid       id,
-           labelname     name,
-           parentlabelid pid
-    from   tbllabel
-  } );
-  $sth->execute();
-  my $tags = readtree( $sth );
-  print Dumper( $tags );
+  # handle undefined attributes appropriately
+  for my $obj ( @objs ) {
+    if ( defined( $obj->{'objid'} ) &&
+         defined( $obj->{'volid'} ) &&
+         defined( $obj->{'pn'} )    &&
+         defined( $obj->{'fn'} ) ) {
+      # no-op
+    }
+    else {
+      adderror( $obj, MSGID_NULL_ATTRIBUTES, $obj );
+    }
 
-  # attach tags to objects
+    $obj->{'status'} //= 0;
+    $obj->{'title'}  //= "";
+    $obj->{'rating'} //= 0;
+    $obj->{'flag'}   //= 0;
+  }
+
+  # read persons
   $sth = $dbh->prepare( q{
-    select labelid       id,
-           objectid      oid
-    from   tbllabelusage
+    select personid pid,
+           name     name
+    from   tblperson
   } );
   $sth->execute();
-  while ( my @row = $sth->fetchrow_array() ) {
-    my ( $id, $oid ) = @row;
+  my %persons = ();
+  while ( my $person = $sth->fetchrow_hashref() ) {
+    my $pid = $person->{'pid'};
+    $person->{'warnings'} = [];
+
+    if ( (! defined( $pid )) || ($pid == 0) ) {
+      warn( "Cannot process undefined or invalid person ID of person (", s2s( $person ), ").\n" );
+      next;
+    }
+
+    if ( exists( $persons{$pid} ) ) {
+      push( @{$persons{$pid}->{'warnings'}},
+            [ PPLMSGID_DUP_ID, $person ] );
+      next;
+    }
+
+    if ( (! defined( $person->{'name'} )) ||
+         (length( $person->{'name'} ) == 0) ) {
+      $person->{'name'} = "wpg2dk-generated-#$pid";
+      push( @{$person->{'warnings'}},
+            [ PPLMSGID_UNDEF_NAME, $person ] );
+    }
+
+    $persons{$pid} = $person;
+  }
+
+  # read regions and attach them to objects.  Force lowercase
+  # column names.
+  $sth = $dbh->prepare( q{
+    select objectid objid,
+           personid pid,
+           left     "left",
+           top      top,
+           width    width,
+           height   height
+    from   tblregion
+  } );
+  $sth->execute();
+  while ( my $region = $sth->fetchrow_hashref() ) {
+    my ( $oid, $pid ) = @{$region}{'objid', 'pid'};
 
     if ( (! defined( $oid )) ||
          (! exists( $objs{$oid} )) ) {
-      # silently ignore references to invalid object IDs or
-      # absent media objects
+      warn( "Cannot process undefined or invalid object ID of region (", s2s( $region ), ").\n" );
     }
-    elsif ( (! defined( $id )) ||
-            (! exists( $tags->{$id} )) ) {
+    elsif ( (! defined( $pid )) ||
+            (! defined( $region->{'left'} ))  ||
+            (! defined( $region->{'top'} ))   ||
+            (! defined( $region->{'width'} )) ||
+            (! defined( $region->{'height'} )) ) {
+      addwarning( $objs{$oid}, MSGID_INVALID_REGION, $region );
+    }
+    elsif ( ($pid != 0) &&
+            (! exists( $persons{$pid} )) ) {
+      $region->{'name'} = "wpg2dk-generated-#$pid";
+      push( @{$objs{$oid}->{'people'}}, $region );
+      addwarning( $objs{$oid}, MSGID_UNDEFINED_PERSON, $region );
+    }
+    elsif ( ($pid == 0) ) {
+      $region->{'name'} = undef();
+      push( @{$objs{$oid}->{'people'}}, $region );
     }
     else {
-      push( @{$objs{$oid}->{'tags'}}, $tags->{$id} );
+      $region->{'name'} = $persons{$pid}->{'name'};
+      push( @{$objs{$oid}->{'people'}}, $region );
+      if ( scalar( @{$persons{$pid}->{'warnings'}} ) > 0 ) {
+        addwarning( $objs{$oid}, MSGID_DUBIOUS_PERSON, $persons{$pid} );
+      }
     }
   }
 
@@ -422,29 +519,76 @@ eval {
     from   tbllocation
   } );
   $sth->execute();
-  my $gtags = readtree( $sth );
-  print Dumper( $gtags );
+  my $geotags = readtree( $sth );
 
-  # handle undefined attributes appropriately
-  for my $obj ( @objs ) {
-    if ( defined( $obj->{'objid'} ) &&
-         defined( $obj->{'volid'} ) &&
-         defined( $obj->{'pn'} )    &&
-         defined( $obj->{'fn'} ) ) {
-      # no-op
+  # attach geotags to objects
+  $sth = $dbh->prepare( q{
+    select locationid       id,
+           objectid         oid
+    from   tblocationUsage
+  } );
+  $sth->execute();
+  while ( my @row = $sth->fetchrow_array() ) {
+    my ( $id, $oid ) = @row;
+
+    if ( (! defined( $oid )) ||
+         (! exists( $objs{$oid} )) ) {
+      warn( "Cannot process undefined or invalid object ID of geotag (", s2s( \@row ), ").\n" );
+    }
+    elsif ( (! defined( $id )) ||
+            (! exists( $geotags->{$id} )) ) {
+      addwarning( $objs{$oid}, MSGID_INVALID_GEOTAG, $id );
+    }
+    elsif ( (defined( $objs{$oid}->{'geotag'} )) ) {
+      addwarning( $objs{$oid}, MSGID_DUP_GEOTAG, $geotags->{$id} );
     }
     else {
-      invalidate( $obj, INV_NULL_ATTRIBUTES );
+      $objs{$oid}->{'geotag'} = $geotags->{$id};
+      if ( grep( scalar( @{$_->{'warnings'}} ), @{$geotags->{$id}} ) ) {
+        addwarning( $objs{$oid}, MSGID_DUBIOUS_GEOTAG, $geotags->{$id} );
+      }
     }
-
-    $obj->{'status'} //= 0;
-    $obj->{'title'}  //= "";
-    $obj->{'rating'} //= 0;
-    $obj->{'flag'}   //= 0;
   }
 
+  # read tags
+  $sth = $dbh->prepare( q{
+    select labelid       id,
+           labelname     name,
+           parentlabelid pid
+    from   tbllabel
+  } );
+  $sth->execute();
+  my $tags = readtree( $sth );
+
+  # attach tags to objects
+  $sth = $dbh->prepare( q{
+    select labelid       id,
+           objectid      oid
+    from   tbllabelusage
+  } );
+  $sth->execute();
+  while ( my @row = $sth->fetchrow_array() ) {
+    my ( $id, $oid ) = @row;
+
+    if ( (! defined( $oid )) ||
+         (! exists( $objs{$oid} )) ) {
+      warn( "Cannot process undefined or invalid object ID of tag (", s2s( \@row ), ").\n" );
+    }
+    elsif ( (! defined( $id )) ||
+            (! exists( $tags->{$id} )) ) {
+      addwarning( $objs{$oid}, MSGID_INVALID_TAG, $id );
+    }
+    else {
+      push( @{$objs{$oid}->{'tags'}}, $tags->{$id} );
+      if ( grep( scalar( @{$_->{'warnings'}} ), @{$tags->{$id}} ) ) {
+        addwarning( $objs{$oid}, MSGID_DUBIOUS_TAG, $tags->{$id} );
+      }
+    }
+  }
+
+  # map file names and look up media metadata
   for my $obj ( @objs ) {
-    if ( validp( $obj ) ) {
+    if ( continuep( $obj ) ) {
       # determine original and mapped absolute media file name
       my $fnao = $obj->{'volid'} . ":" .
                  catfile( split( /\\/, $obj->{'pn'} ), $obj->{'fn'} );
@@ -460,32 +604,32 @@ eval {
       $obj->{'xna'}  = $xna;
 
       if ( length( $fna ) == 0 ) {
-        invalidate( $obj, INV_IGNORED_FILE );
+        adderror( $obj, MSGID_IGNORED_FILE, $fnao );
       }
       elsif ( $fna eq $fnao ) {
-        invalidate( $obj, INV_UNMAPPED_FILE );
+        adderror( $obj, MSGID_UNMAPPED_FILE, $fnao );
       }
       elsif ( ! -f $fna ) {
-        invalidate( $obj, INV_FILE_MISSING );
+        adderror( $obj, MSGID_FILE_MISSING, $fna, $fnao );
       }
     }
 
-    if ( validp( $obj ) ) {
+    if ( continuep( $obj ) ) {
       my $xnao = $obj->{'xnao'};
       my $xna  = $obj->{'xna'};
 
       if ( length( $xna ) == 0 ) {
-        invalidate( $obj, INV_IGNORED_XFILE );
+        invalidate( $obj, MSGID_IGNORED_XFILE );
       }
       elsif ( $xna eq $xnao ) {
-        invalidate( $obj, INV_UNMAPPED_XFILE );
+        invalidate( $obj, MSGID_UNMAPPED_XFILE );
       }
       elsif ( (-e $xna) && (! $force) ) {
-        invalidate( $obj, INV_XFILE_EXISTS );
+        invalidate( $obj, MSGID_XFILE_EXISTS );
       }
     }
 
-    if ( validp( $obj ) ) {
+    if ( continuep( $obj ) ) {
       my $fna = $obj->{'fna'};
 
       # determine media file metadata
@@ -494,25 +638,27 @@ eval {
                                          'EXIF:Orientation',
                                          'ExifTool:Warning',
                                          'ExifTool:Error' ],
-                                       { 'PrintConv' => 0,
-                                         'Struct'    => 1 } );
-
-      # convert warnings and errors into somethine more
-      # structured
-      my @xfwarnings = ();
-      my @xferrors   = ();
-      for my $tag ( sort( keys( %{$info} ) ) ) {
-        push( @xfwarnings, bue( $info->{$tag} ) ) if ( $tag =~ /^Warning\b/ );
-        push( @xferrors,   bue( $info->{$tag} ) ) if ( $tag =~ /^Error\b/ );
-      }
+                                       { 'PrintConv' => 0 } );
 
       $obj->{'mime'}   = $info->{'MIMEType'};
       $obj->{'xfornt'} = $info->{'Orientation'};
-      $obj->{'xfwrns'} = \@xfwarnings;
-      $obj->{'xferrs'} = \@xferrors;
 
+      # convert ExifTool warnings and errors into media object
+      # warnings and errors, respectively
+      my @xfwarnings = ();
+      my @xferrors   = ();
+      for my $tag ( sort( keys( %{$info} ) ) ) {
+        next if ( ($tag =~ /^Warning\b/) &&
+                  (defined( $info->{$tag} )) &&
+                  (lc( $info->{$tag}) eq "[minor] fixed incorrect uri for xmlns:microsoftphoto") );
+        push( @xfwarnings, bue( $info->{$tag} ) ) if ( $tag =~ /^Warning\b/ );
+        push( @xferrors,   bue( $info->{$tag} ) ) if ( $tag =~ /^Error\b/ );
+      }
+      if ( scalar( @xfwarnings ) > 0 ) {
+        addwarning( $obj, MSGID_EXIFTOOL_WARNINGS, @xfwarnings );
+      }
       if ( scalar( @xferrors ) > 0 ) {
-        invalidate( $obj, INV_EXIFTOOL_FAILED );
+        adderror( $obj, MSGID_EXIFTOOL_ERRORS, @xferrors );
       }
     }
   }
@@ -523,41 +669,41 @@ eval {
     }
   }
 
-  if ( $action eq "listinv" ) {
-    @invs = @INV_REASONS if ( scalar( @invs ) == 0 );
+  if ( $action eq "listerr" ) {
+    @msgids = @MESSAGE_IDS if ( scalar( @msgids ) == 0 );
 
-    for my $inv ( @invs ) {
-      if ( scalar( @{$ios{$inv}} ) > 0 ) {
-        print( "$inv\n" );
-        for my $io ( @{$ios{$inv}} ) {
-          if ( ($inv eq INV_NULL_ATTRIBUTES) ) {
+    for my $msgid ( @msgids ) {
+      if ( scalar( @{$errids{$msgid}} ) > 0 ) {
+        print( "$msgid\n" );
+        for my $io ( @{$errids{$msgid}} ) {
+          if ( ($msgid eq MSGID_NULL_ATTRIBUTES) ) {
             printf( "  %5d %s:%s\\%s\n",
                     $io->{'objid'} // "NULL",
                     $io->{'volid'} // "NULL",
                     $io->{'pn'}    // "NULL",
                     $io->{'fn'}    // "NULL" );
           }
-          elsif ( ($inv eq INV_IGNORED_FILE) ) {
+          elsif ( ($msgid eq MSGID_IGNORED_FILE) ) {
             print( "  $io->{'fnao'}\n" );
           }
-          elsif ( ($inv eq INV_UNMAPPED_FILE) ) {
+          elsif ( ($msgid eq MSGID_UNMAPPED_FILE) ) {
             print( "  $io->{'fnao'}\n" );
           }
-          elsif ( ($inv eq INV_FILE_MISSING) ) {
+          elsif ( ($msgid eq MSGID_FILE_MISSING) ) {
             print( "  $io->{'fnao'}\n" );
             print( "  => $io->{'fna'}\n" );
           }
-          elsif ( ($inv eq INV_IGNORED_XFILE) ) {
+          elsif ( ($msgid eq MSGID_IGNORED_XFILE) ) {
             print( "  $io->{'xnao'}\n" );
           }
-          elsif ( ($inv eq INV_UNMAPPED_XFILE) ) {
+          elsif ( ($msgid eq MSGID_UNMAPPED_XFILE) ) {
             print( "  $io->{'xnao'}\n" );
           }
-          elsif ( ($inv eq INV_XFILE_EXISTS) ) {
+          elsif ( ($msgid eq MSGID_XFILE_EXISTS) ) {
             print( "  $io->{'xnao'}\n" );
             print( "  => $io->{'xna'}\n" );
           }
-          elsif ( ($inv eq INV_EXIFTOOL_FAILED) ) {
+          elsif ( ($msgid eq MSGID_EXIFTOOL_ERRORS) ) {
             print( "  $io->{'fna'}\n" );
             for my $xferr ( @{$io->{'xferrs'}} ) {
               print( "    $xferr\n" );
@@ -568,8 +714,9 @@ eval {
     }
   }
   else {
-    if ( $ion > 0 ) {
-      warn( "Cannot process $ion invalid objects. Use command \"listinv\" to list them.\n" );
+    my $errobjc = scalar( keys( %errobjs ) );
+    if ( $errobjc > 0 ) {
+      warn( "Cannot process $errobjc objects with errors. Use command \"listerr\" to list them.\n" );
     }
   }
 };
@@ -581,6 +728,13 @@ if ( scalar( @warnings ) > 0 ) {
   print STDERR ( "\n" );
   for my $warning ( @warnings ) {
     print STDERR ( $warning );
+  }
+}
+
+if ( scalar( @errors ) > 0 ) {
+  print STDERR ( "\n" );
+  for my $error ( @errors ) {
+    print STDERR ( $error );
   }
 }
 
