@@ -13,7 +13,7 @@ WPG is already used by digiKam, some is not, and some is broken
 source of WPG metadata is actually the WPG metadata database
 itself, and not the metadata stored by WPG in the media files.
 
-So the overall migration process goes like this:
+So the overall migration process went like this:
 
 1.  Extract the WPG metadata from the database and store it in an
     SQLite database.
@@ -52,12 +52,12 @@ WPG database and let digiKam pick up these sidecar files.
 
 However, it soon became clear that merging media metadata is a
 highly non-trivial process, so I decided to better delegate that
-to ExifTool.  (incomplete) Use ExifTool's featues to select tags,
-files to process, etc.
+to ExifTool with its plethora of featues to select tags, files to
+process, etc.
 
 To avoid confusion: "Tags" in WPG and digiKam denote descriptive
 attributes that can be attached to media files, like geotags or
-people tags.  In ExifTool, "tags" denote the smallest unit of
+people tags.  In ExifTool, a "tag" denotes the smallest unit of
 metadata that can be processed.  A metadata unit that contains a
 WPG tag is called "keyword" in ExifTool.
 
@@ -168,37 +168,14 @@ which are:
 - Rating
 - Flag
 
-The general idea is that `wpg2dk` always extracts all metadata
-from the WPG metadata.  As explained in the next section, the
-rich command line interface of ExifTool can then be used to
-control what parts of that metadata are actually injected into
-the media files.
+The general idea is that `wpg2dk` always extracts all present
+metadata from the WPG metadata.  As explained in the next
+section, the rich command line interface of ExifTool can then be
+used to control what parts of that metadata are actually injected
+into the media files.
 
-You can select by their file path which media files should be
-processed by `wpg2dk`.
-
-The following rather technical sections describe in more details
-how the WPG metadata is extacted, converted, and written to the
-intermediate XMP files:
-
-- [Media File Path](#media-file-path)
-- [People tags](#people-tags)
-- [Geotag](#geotag)
-- [Caption](#caption)
-- [Descriptive tags](#descriptive-tags)
-- [Rating](#rating)
-- [Flag](#flag)
-
-### Media File Path
-
-*Source*:
-
-    -- compose complete path from volume, path, and file name
-    select    v.label, p.path, o.filename
-    from      tblobject o
-    left join tblpath p   on o.filepathid = p.pathid
-    left join tblvolume v on p.volumeid   = v.volumeid
-    where     o.objectid = ...
+(incomplete) You can select by their file path which media files
+should be processed by `wpg2dk`.
 
 *Notes*:
 
@@ -214,6 +191,71 @@ intermediate XMP files:
 
 - To get an idea what volumes are used and what their path should
   be, run `wpg2dk` with action `list`.
+
+## Injecting the WPG Metadata
+
+(incomplete) Describe selection of metadata to inject.  As an
+added complexity, describe how to inject only certain types of
+tags.
+
+    ```
+    (incomplete)
+    exiftool -tagsFromFile '%:3d%F.xmp' ~/Pictures/IMG_2882.jpg
+    ```
+
+An an alternative to the above procedure, you can also inject the
+intermediate XMP files into sidecar XMP files written by (and
+read from) digiKam, thus leaving your precious media files
+unchanged.
+
+## Background and Version Information
+
+- I considered using Shotwell (Gnome) or digiKam (KDE) as
+  migration targets.  The former has a cleaner UI, the latter
+  much more features.  Selected digiKam, hence.
+
+- Newer digiKam is better, in particular with respect to face
+  detection and recognition.  My Debian GNU/Linux 11 came with
+  digiKam 7.1, so I installed the `org.kde.digikam` Flatpak from
+  Flathub with digiKam 7.4.0.
+
+- On my particular setup the digiKam Flatpak has some severe
+  display problems on Wayland.  All fine on X11.
+
+- My WPG version is "Windows Photo Gallery 2012", build
+  16.4.3528.331 running on Windows 8.1.
+
+## Technical Details
+
+The following rather technical sections describe in more details
+how `wpg2dk` extracts the WPG metadata, converts it, and writes
+it to the intermediate XMP files:
+
+- [Media File Path](#media-file-path)
+- [People tags](#people-tags)
+- [Geotag](#geotag)
+- [Caption](#caption)
+- [Descriptive tags](#descriptive-tags)
+- [Rating](#rating)
+- [Flag](#flag)
+
+Unfortunately, the WPG database does not seem to define any
+constraints on the contained tables (or they get lost somewhere
+during the conversion process).  Accordingly, `wpg2dk` does not
+rely on any assumptions when reading the WPG metadata from the
+database and in particular does not really use the nice SQL joins
+described below.
+
+### Media File Path
+
+*Source*:
+
+    -- compose complete path from volume, path, and file name
+    select    v.volumeid, p.path, o.filename
+    from      tblobject o
+    left join tblpath   p on o.filepathid = p.pathid
+    left join tblvolume v on p.volumeid   = v.volumeid
+    where     o.objectid = ...
 
 ### People Tags
 
@@ -346,7 +388,7 @@ For `l.locationname`:
 
 - You can configure the geotag root tag (defaulting to
   `Location`) with command line parameter
-  `-geotags root:<geotag-root>`.
+  `-geotagroot <geotag-root>`.
 
 - You can control the structure of the generated geotags with
   command line option `-geotags`.  Suppose you have a geotag with
@@ -354,13 +396,13 @@ For `l.locationname`:
   select to get the following geotags added to the intermediate
   XMP file:
 
-  - `-geotags struct=path` (default)
+  - `-geotags path` (default)
 
       ```
       <geotag-root>/country/state/city
       ```
 
-  - `-geotags struct=rec`
+  - `-geotags rec`
 
       ```
       <geotag-root>/country
@@ -368,7 +410,7 @@ For `l.locationname`:
       <geotag-root>/country/state/city
       ```
 
-  - `-geotags struct=nodes`
+  - `-geotags nodes`
 
       ```
       <geotag-root>/country
@@ -376,7 +418,7 @@ For `l.locationname`:
       <geotag-root>/city
       ```
 
-  - `-geotags struct=leaf`
+  - `-geotags leaf`
 
       ```
       <geotag-root>/city
@@ -386,7 +428,7 @@ For `l.locationname`:
 
 *Source*: `select title from tblobject where objectid = ...`
 
-*Type*:   non-empty UTF-8 encoded string
+*Type*:   UTF-8 encoded string
 
 *Target:*
 
@@ -398,6 +440,11 @@ For `l.locationname`:
       </rdf:Alt>
      </dc:title>
     </rdf:Description>
+
+*Notes*:
+
+- `wpg2dk` adds a title to the intermediate XMP only if it is
+  non-empty.
 
 ### Descriptive Tags
 
@@ -480,8 +527,8 @@ not containing any slashes (`l.labelname`)
 
 *Notes*:
 
-- `wpg2dk` always sets an explicit zero level rating to override
-  possible other rating tags.
+- `wpg2dk` adds a rating to the intermediate XMP only if the
+  source rating is larger than zero.
 
 ### Flag
 
@@ -503,40 +550,7 @@ not containing any slashes (`l.labelname`)
   `NULL`.
 
 - You can configure the pick label (defaulting to 3, "Accepted")
-  via command line parameter `-pl`.
-
-## Injecting the WPG Metadata
-
-(incomplete) Describe selection of metadata to inject.  As an
-added complexity, describe how to inject only certain types of
-tags.
-
-    ```
-    (incomplete)
-    exiftool -tagsFromFile '%:3d%F.xmp' ~/Pictures/IMG_2882.jpg
-    ```
-
-An an alternative to the above procedure, you can also inject the
-intermediate XMP files into sidecar XMP files written by (and
-read from) digiKam, thus leaving your precious media files
-unchanged.
-
-## Background and Version Information
-
-- I considered using Shotwell (Gnome) or digiKam (KDE) as
-  migration targets.  The former has a cleaner UI, the latter
-  much more features.  Selected digiKam, hence.
-
-- Newer digiKam is better, in particular with respect to face
-  detection and recognition.  My Debian GNU/Linux 11 came with
-  digiKam 7.1, so I installed the `org.kde.digikam` Flatpak from
-  Flathub with digiKam 7.4.0.
-
-- On my particular setup the digiKam Flatpak has some severe
-  display problems on Wayland.  All fine on X11.
-
-- My WPG version is "Windows Photo Gallery 2012", build
-  16.4.3528.331 running on Windows 8.1.
+  via command line parameter `-pl <pick-label>`.
 
 ## Development Snippets
 
