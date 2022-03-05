@@ -12,8 +12,10 @@ use DBD::SQLite::Constants      qw( :file_open );
 use Data::Dumper                qw( Dumper );
 use File::Spec::Functions       qw( catfile );
 use Getopt::Long                qw( GetOptions :config no_ignore_case bundling );
+use Hash::Util                  qw( lock_hashref lock_ref_keys_plus );
 use IO::Handle                  qw();
 use Image::ExifTool             qw();
+use List::Util                  qw( notall );
 
 $Data::Dumper::Indent   = 1;
 $Data::Dumper::Sortkeys = 1;
@@ -82,17 +84,30 @@ use constant MSGID_WPGTAG_UNDEF_NAME     => "undef_tag_name";
 use constant MSGID_WPGTAG_UNDEF_PID      => "undef_tag_pid";
 use constant MSGID_WPGTAG_MISSING_PID    => "missing_tag_pid";
 use constant MSGID_WPGTAG_MISSING_ROOT   => "missing_tag_root";
+use constant MSGID_WPGTAG_INVALID_GPS    => "invalid_gps";
 
 # invalid WPG people metadata message IDs
 use constant MSGID_WPGPPL_DUP_ID         => "dup_people_id";
 use constant MSGID_WPGPPL_UNDEF_NAME     => "undef_people_name";
 
-my %ACTIONS = (
+my %COMMANDS = (
   'summary' => 1,
   'listerr' => 1,
   'dump'    => 1,
   'list'    => 1,
   'extract' => 1,
+);
+
+use constant TAG_STRUCT_PATH  => "path";
+use constant TAG_STRUCT_REC   => "rec";
+use constant TAG_STRUCT_NODES => "nodes";
+use constant TAG_STRUCT_LEAF  => "leaf";
+
+my %TAG_STRUCTS = (
+  (TAG_STRUCT_PATH)  => 1,
+  (TAG_STRUCT_REC)   => 1,
+  (TAG_STRUCT_NODES) => 1,
+  (TAG_STRUCT_LEAF)  => 1,
 );
 
 #{{{ auxilliary functions
@@ -220,7 +235,7 @@ sub catnodes
 #      ...,
 #   }
 #
-# where tag node 0 has tag id <id> and tag node i+1 is the parent
+# where tag node n has tag id <id> and tag node i-1 is the parent
 # node of tag node i.
 sub readtree
 {
@@ -231,8 +246,8 @@ sub readtree
     my $id = $node->{'id'};
     $node->{'warnings'} = [];
 
-    if ( (! defined( $id )) || ($id == 0) ) {
-      warn( "Cannot process undefined or zero node ID (", s2s( $node ), ")" );
+    if ( (! defined( $id )) || ($id <= 0) ) {
+      warn( "Cannot process undefined or non-positive node ID (", s2s( $node ), ")" );
       next;
     }
 
@@ -365,42 +380,298 @@ sub continuep
 
 #}}}
 
+#{{{ addxmptags
+
+# adds one or more XMP tags to the specified set of XMP tags
+# according to the specified remaining parameters
+sub addxmptags
+{
+  my ( $xmptags, $tag, $tagstruct, $tagprfx ) = @_;
+
+  local *addxmptag = sub {
+    if ( defined( $tagprfx ) ) {
+      $xmptags->{"$tagprfx/$_[0]"} = 1;
+    }
+    else {
+      $xmptags->{"$_[0]"} = 1;
+    }
+  };
+
+  if ( 0 ) {
+    # alignment no-op
+  }
+  elsif ( $tagstruct eq TAG_STRUCT_PATH ) {
+    addxmptag( join( "/", map { $_->{'name'} } @{$tag} ) );
+  }
+  elsif ( $tagstruct eq TAG_STRUCT_REC ) {
+    addxmptag( join( "/", map { $_->{'name'} } @{$tag}[0 .. $_] ) ) for ( 0 .. $#{$tag} );
+  }
+  elsif ( $tagstruct eq TAG_STRUCT_NODES ) {
+    addxmptag( $_->{'name'} ) for ( @{$tag} );
+  }
+  elsif ( $tagstruct eq TAG_STRUCT_LEAF ) {
+    addxmptag( $tag->[-1]->{'name'} );
+  }
+}
+
+#}}}
+
+#{{{ writexmp
+
+sub writexmp
+{
+  my ( $obj, $xmpopts ) = @_;
+
+  my $xmpfn = $obj->{'xn'};
+  my $xmpf  = undef();
+  unless ( open( $xmpf, ">", $xmpfn ) ) {
+    die( "Cannot open \"$xmpfn\" for writing (", bue( $! ), ")" );
+  }
+
+  my %xmptags = ();
+
+  # write XMP header
+  print $xmpf ( << "EOX" );
+<?xpacket begin='﻿' id='W5M0MpCehiHzreSzNTczkc9d'?>
+<x:xmpmeta xmlns:x='adobe:ns:meta/' x:xmptk='https://github.com/farblos/wpg2dk'>
+<!-- $obj->{'uiid'} -->
+<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>
+EOX
+
+  # write region information
+  if ( notall { ($_->{'left'}  == 0) && ($_->{'top'}    == 0) &&
+                ($_->{'width'} == 0) && ($_->{'height'} == 0) } @{$obj->{'people'}} ) {
+    print $xmpf ( << 'EOX' );
+ <rdf:Description rdf:about=''
+  xmlns:MP='http://ns.microsoft.com/photo/1.2/'
+  xmlns:MPRI='http://ns.microsoft.com/photo/1.2/t/RegionInfo#'
+  xmlns:MPReg='http://ns.microsoft.com/photo/1.2/t/Region#'>
+  <MP:RegionInfo rdf:parseType='Resource'>
+   <MPRI:Regions>
+    <rdf:Bag>
+EOX
+
+  for my $region ( @{$obj->{'people'}} ) {
+    my $left   = $region->{'left'};
+    my $top    = $region->{'top'};
+    my $width  = $region->{'width'};
+    my $height = $region->{'height'};
+
+    my $xfornt = $obj->{'xfornt'};
+
+    # skip region-less people
+    if ( ($left   == 0) &&
+         ($top    == 0) &&
+         ($width  == 0) &&
+         ($height == 0) ) {
+      next;
+    }
+    # do not rotate region
+    elsif ( (! defined( $xfornt )) ||
+            ($xfornt == 1) ||
+            ($xfornt == 2) ) {
+      # no-op
+    }
+    # rotate region by 180 degree
+    elsif ( ($xfornt == 3) ||
+            ($xfornt == 4) ) {
+      $left   = 1 - $left - $width;
+      $top    = 1 - $top  - $height;
+    }
+    # rotate region by 90 degree CCW
+    elsif ( ($xfornt == 5) ||
+            ($xfornt == 6) ) {
+      ( $left, $top, $width, $height ) =
+      ( $top, 1 - $left - $width, $height, $width );
+    }
+    # rotate region by 270 degree CCW
+    elsif ( ($xfornt == 7) ||
+            ($xfornt == 8) ) {
+      ( $left, $top, $width, $height ) =
+      ( 1 - $top - $height, $left, $height, $width );
+    }
+
+    # mirror region horizontally
+    if ( ($xfornt == 2) || ($xfornt == 4) || ($xfornt == 5) || ($xfornt == 7) ) {
+      $top    = 1 - $top  - $height;
+    }
+
+    # sanitize top and left values
+    $top  = 0 if ( $top  < 0 );
+    $top  = 1 if ( $top  > 1 );
+    $left = 0 if ( $left < 0 );
+    $left = 1 if ( $left > 1 );
+
+    # format floats to 6 places after the decimal point
+    $left   = sprintf( '%0.6f', $left   );
+    $top    = sprintf( '%0.6f', $top    );
+    $width  = sprintf( '%0.6f', $width  );
+    $height = sprintf( '%0.6f', $height );
+
+    if ( defined( $region->{'name'} ) ) {
+      print $xmpf ( << "EOX" );
+     <rdf:li rdf:parseType='Resource'>
+      <MPReg:PersonDisplayName>$region->{'name'}</MPReg:PersonDisplayName>
+      <MPReg:Rectangle>$left, $top, $width, $height</MPReg:Rectangle>
+     </rdf:li>
+EOX
+    }
+    else {
+      print $xmpf ( << "EOX" );
+     <rdf:li rdf:parseType='Resource'>
+      <MPReg:Rectangle>$left, $top, $width, $height</MPReg:Rectangle>
+     </rdf:li>
+EOX
+    }
+  }
+
+    print $xmpf ( << 'EOX' );
+    </rdf:Bag>
+   </MPRI:Regions>
+  </MP:RegionInfo>
+ </rdf:Description>
+EOX
+  }
+
+  # add people tags
+  for my $region ( @{$obj->{'people'}} ) {
+    if ( defined( $region->{'name'} ) ) {
+      $xmptags{"People/" . $region->{'name'}} = 1;
+    }
+  }
+
+  # write sync status
+  print $xmpf ( << "EOX" ) if ( (defined( $xmpopts->{'pccl'} )) && ($obj->{'status'}) );
+ <rdf:Description rdf:about=''
+  xmlns:digiKam='http://www.digikam.org/ns/1.0/'>
+  <digiKam:ColorLabel>$xmpopts->{'pccl'}</digiKam:ColorLabel>
+ </rdf:Description>
+EOX
+
+  # add geotag
+  if ( (defined( $obj->{'geotag'} )) ) {
+    addxmptags( \%xmptags, $obj->{'geotag'}, $xmpopts->{'gtags'}, $xmpopts->{'gtr'} );
+  }
+
+  # write geotag coordinates
+  if ( (defined( $obj->{'geotag'} )) &&
+       (defined( $obj->{'geotag'}->[-1]->{'xflat'} )) &&
+       (defined( $obj->{'geotag'}->[-1]->{'xflong'} )) ) {
+    print $xmpf ( << "EOX" );
+ <rdf:Description rdf:about=''
+  xmlns:exif='http://ns.adobe.com/exif/1.0/'>
+  <exif:GPSLatitude>$obj->{'geotag'}->[-1]->{'xflat'}</exif:GPSLatitude>
+  <exif:GPSLongitude>$obj->{'geotag'}->[-1]->{'xflong'}</exif:GPSLongitude>
+ </rdf:Description>
+EOX
+  }
+
+  # write caption
+  if ( defined( $obj->{'title'} ) ) {
+    print $xmpf ( << "EOX" );
+ <rdf:Description rdf:about=''
+  xmlns:dc='http://purl.org/dc/elements/1.1/'>
+  <dc:title>
+   <rdf:Alt>
+    <rdf:li xml:lang='x-default'>$obj->{'title'}</rdf:li>
+   </rdf:Alt>
+  </dc:title>
+ </rdf:Description>
+EOX
+  }
+
+  # add (descriptive) tags
+  for my $tag ( @{$obj->{'tags'}} ) {
+    addxmptags( \%xmptags, $tag, $xmpopts->{'tags'}, undef() );
+  }
+
+  # write rating
+  print $xmpf ( << "EOX" ) if ( $obj->{'rating'} > 0 );
+ <rdf:Description rdf:about=''
+  xmlns:xmp='http://ns.adobe.com/xap/1.0/'>
+  <xmp:Rating>$obj->{'rating'}</xmp:Rating>
+ </rdf:Description>
+EOX
+
+  # write flag
+  print $xmpf ( << "EOX" ) if ( $obj->{'flag'} );
+ <rdf:Description rdf:about=''
+  xmlns:digiKam='http://www.digikam.org/ns/1.0/'>
+  <digiKam:PickLabel>$xmpopts->{'pl'}</digiKam:PickLabel>
+ </rdf:Description>
+EOX
+
+  # write tags, if any
+  if ( scalar( keys( %xmptags ) ) > 0 ) {
+    print $xmpf ( << 'EOX' );
+ <rdf:Description rdf:about=''
+  xmlns:digiKam='http://www.digikam.org/ns/1.0/'>
+  <digiKam:TagsList>
+   <rdf:Seq>
+EOX
+    for my $xmptag ( sort( keys( %xmptags ) ) ) {
+      print $xmpf ( "    <rdf:li>$xmptag</rdf:li>\n" );
+    }
+    print $xmpf ( << 'EOX' );
+   </rdf:Seq>
+  </digiKam:TagsList>
+ </rdf:Description>
+EOX
+  }
+
+  # write XMP footer
+  print $xmpf ( << 'EOX' );
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end='w'?>
+EOX
+
+  close( $xmpf );
+}
+
+#}}}
+
 #{{{ process commandline parameters
 
-my $action = undef();
+my $command = undef();
 if ( scalar( @ARGV ) > 0 ) {
-  $action = shift( @ARGV );
+  $command = shift( @ARGV );
 }
 else {
-  usage( "No action specified." );
+  usage( "No command specified." );
 }
 
-if ( ! exists( $ACTIONS{$action} ) ) {
-  usage( "Invalid action \"$action\" specified." );
+if ( ! exists( $COMMANDS{$command} ) ) {
+  usage( "Invalid command \"$command\" specified." );
 }
 
-# need to add commandline options (incomplete):
-#
-#   -pccl <people-completeness-color-label>
-#   -geotagroot <geotag-root>
-#   -geotags <structure-type>
-#   -tags <structure-type>
-#   -pl <pick-label>
-my  $force  = 0;
-my  @mmap   = ();
-my  @xmap   = ();
-my  $idtp   = "filename";
-my  $errfmt = "structured";
+my $force   = 0;
+my @mmap    = ();
+my @xmap    = ();
+my $idtp    = "filename";
+my $errfmt  = "structured";
+my @msgids  = ();
+my %xmpopts = (
+  'pccl'    => undef(),
+  'gtr'     => "Location",
+  'gtags'   => TAG_STRUCT_PATH,
+  'tags'    => TAG_STRUCT_PATH,
+  'pl'      => "3",
+);
 {
   my $error = undef();
   local $SIG{'__WARN__'} = sub { $error = bue( $_[0] ) };
-  if ( ! GetOptions( ($action eq "extract") ?
-                     ("f|force"             => \$force) : (),
-                      "m|mmap=s"            => \@mmap,
-                      "x|xmap=s"            => \@xmap,
-                      "i|idtype=s"          => \$idtp,
-                     ($action eq "listerr") ?
-                      ("e|error_format=s"   => \$errfmt) : () ) ) {
+  if ( ! GetOptions( "f|force"             => \$force,
+                     "m|mmap=s"            => \@mmap,
+                     "x|xmap=s"            => \@xmap,
+                     "i|idtype=s"          => \$idtp,
+                     "e|error_format=s"    => \$errfmt,
+                     "M|message_id=s"      => \@msgids,                 # "listerr" only
+                       "pccl=s"            => \$xmpopts{'pccl'},        # "extract" only
+                     "r|geotagroot=s"      => \$xmpopts{'gtr'},         # "extract" only
+                     "g|geotags=s"         => \$xmpopts{'gtags'},       # "extract" only
+                     "t|tags=s"            => \$xmpopts{'tags'},        # "extract" only
+                     "p|pl=s"              => \$xmpopts{'pl'} ) ) {     # "extract" only
     usage( "Invalid commandline parameters specified ($error)." );
   }
 }
@@ -425,6 +696,36 @@ if ( ($errfmt ne "structured") &&
   usage( "Invalid error format \"$errfmt\" specified." );
 }
 
+# verify message IDs
+if ( scalar( @msgids ) > 0 ) {
+  for my $msgid ( @msgids ) {
+    if ( ! grep { $_ eq $msgid } @MESSAGE_IDS ) {
+      usage( "Invalid message ID \"$msgid\" specified." );
+    }
+  }
+}
+else {
+  @msgids = @MESSAGE_IDS;
+}
+
+# verify XMP generation options
+if ( (defined( $xmpopts{'pccl'} )) &&
+     ($xmpopts{'pccl'} !~ /^[0-9]$/) ) {
+  usage( "Invalid people completeness color label \"$xmpopts{'pccl'}\" specified." );
+}
+if ( (length( $xmpopts{'gtr'} ) == 0) ) {
+  usage( "Invalid empty geotag root specified." );
+}
+if ( (! exists( $TAG_STRUCTS{$xmpopts{'gtags'}} )) ) {
+  usage( "Invalid geotag structure \"$xmpopts{'gtags'}\" specified." );
+}
+if ( (! exists( $TAG_STRUCTS{$xmpopts{'tags'}} )) ) {
+  usage( "Invalid tag structure \"$xmpopts{'tags'}\" specified." );
+}
+if ( ($xmpopts{'pl'} !~ /^[0-5]$/) ) {
+  usage( "Invalid pick label \"$xmpopts{'pl'}\" specified." );
+}
+
 my $dbn = undef();
 if ( scalar( @ARGV ) > 0 ) {
   $dbn = shift( @ARGV );
@@ -436,22 +737,11 @@ if ( ! -f $dbn ) {
   usage( "Invalid database name \"$dbn\" specified." );
 }
 
-# verify items, which can be:
-# - message IDs for action "listerr"
-# - UIID matchers for actions "dump", "list", "extract"
-my @items = @ARGV;
-if ( $action eq "listerr" ) {
-  for my $msgid ( @items ) {
-    if ( ! grep { $_ eq $msgid } @MESSAGE_IDS ) {
-      usage( "Invalid message ID \"$msgid\" specified." );
-    }
-  }
-}
-elsif ( ($action eq "dump") ||
-        ($action eq "list") ||
-        ($action eq "extract") ) {
+# verify UIID matchers (which are ignored for command "summary")
+my @uiidms = @ARGV;
+{
   my $prvnot = 0;
-  for my $uiidm ( @items ) {
+  for my $uiidm ( @uiidms ) {
     if ( ($uiidm eq "-X") && (! $prvnot) ) {
       $prvnot = 1;
     }
@@ -473,11 +763,8 @@ elsif ( ($action eq "dump") ||
     }
   }
   if ( $prvnot ) {
-      usage( "Invalid trailing negation in UIID matchers." );
+    usage( "Invalid trailing negation in UIID matchers." );
   }
-}
-elsif ( scalar( @ARGV ) > 0 ) {
-  usage( "Extra commandline parameters @ARGV specified." );
 }
 
 #}}}
@@ -520,7 +807,35 @@ eval {
   $sth->execute();
 
   # ... and store them in nearly-global structures, adding some
-  # essential attributes on the way
+  # essential attributes on the way.  The resulting media object
+  # looks like this:
+  #
+  #   {
+  #     # selected from tblobject above, brushed up below
+  #     'oid'      => (! defined( $_ ) || (integer( $_ )),
+  #     'status'   => (($_ == 0) || ($_ == 1)),
+  #     'title'    => (! defined( $_ )) || (string( $_ ) && (length( $_ ) > 0)),
+  #     'rating'   => defined( $_ ) && integer( $_ ),
+  #     'flag'     => defined( $_ ) && integer( $_ ),
+  #     'volid'    => (! defined( $_ )) || (integer( $_ )),
+  #     'pn'       => (! defined( $_ )) || (string( $_ )),
+  #     'fn'       => (! defined( $_ )) || (string( $_ )),
+  #
+  #     # added by below loop
+  #     'uidd'     => defined( $_ ) && string( $_ ),
+  #     'errors'   => [ [ MSGID_*, $msgparam, ... ], ... ],
+  #     'warnings' => [ [ MSGID_*, $msgparam, ... ], ... ],
+  #     'people'   => [ $region, ... ],
+  #     'geotag'   => (! defined( $_ )) || ([ $geotagnode, ... ]),
+  #     'tags'     => [ [ $tagnode, ...], ... ],
+  #
+  #     # added even later on demand
+  #     'fno'      => (! defined( $_ )) || (string( $_ )),
+  #     'fn'       => (! defined( $_ )) || (string( $_ )),
+  #     'xno'      => (! defined( $_ )) || (string( $_ )),
+  #     'xn'       => (! defined( $_ )) || (string( $_ )),
+  #     'xfornt'   => (! defined( $_ )) || (integer( $_ )),
+  #   }
   my %objs = ();
   my @objs = ();
   while ( my $obj = $sth->fetchrow_hashref() ) {
@@ -547,6 +862,9 @@ eval {
     $obj->{'people'}   = [];
     $obj->{'geotag'}   = undef();
     $obj->{'tags'}     = [];
+
+    lock_ref_keys_plus( $obj, 'fno', 'fn', 'xno', 'xn',
+                              'xfornt' );
 
     my $oid = $obj->{'oid'} || "null";
     if ( ! exists( $objs{$oid} ) ) {
@@ -607,41 +925,61 @@ eval {
 
 #{{{ read persons and regions and attach them to media objects
 
-  # read persons
+  # read persons into a hash mapping positive person IDs to
+  # hashes
+  #
+  #   {
+  #      'pid'      => (defined( $_ ) && integer( $_ ) && ($_ > 0)),
+  #      'name'     => (defined( $_ ) && string( $_ )  && (length( $_ ) > 0),
+  #      'warnings' => [ [ MSGID_WPGPPL_*, $object ], ... ],
+  #   }
+  my %persons = ();
   $sth = $dbh->prepare( q{
     select personid pid,
            name     name
     from   tblperson
   } );
   $sth->execute();
-  my %persons = ();
   while ( my $person = $sth->fetchrow_hashref() ) {
     my $pid = $person->{'pid'};
     $person->{'warnings'} = [];
 
-    if ( (! defined( $pid )) || ($pid == 0) ) {
+    if ( (! defined( $pid )) || ($pid <= 0) ) {
       warn( "Cannot process undefined or invalid person ID of person (", s2s( $person ), ").\n" );
-      next;
     }
-
-    if ( exists( $persons{$pid} ) ) {
+    elsif ( exists( $persons{$pid} ) ) {
       push( @{$persons{$pid}->{'warnings'}},
             [ MSGID_WPGPPL_DUP_ID, $person ] );
-      next;
     }
-
-    if ( (! defined( $person->{'name'} )) ||
-         (length( $person->{'name'} ) == 0) ) {
+    elsif ( (! defined( $person->{'name'} )) ||
+            (length( $person->{'name'} ) == 0) ) {
       $person->{'name'} = "wpg2dk-generated-#$pid";
       push( @{$person->{'warnings'}},
             [ MSGID_WPGPPL_UNDEF_NAME, $person ] );
     }
 
+    lock_hashref( $person );
+
     $persons{$pid} = $person;
   }
 
-  # read regions and attach them to objects.  Force lowercase
-  # column names.
+  # read regions and attach them to objects.  Region format is
+  #
+  #   {
+  #     'oid'    => (defined( $_ ) && integer( $_ ) && exists( $objs{$_} )),
+  #     'pid'    => (defined( $_ ) && integer( $_ )),
+  #     'name'   => (! defined( $_ )) ||
+  #                 (defined( $_ ) && string( $_ )  && (length( $_ ) > 0)),
+  #     'left'   => (defined( $_ ) && float( $_ )   && (0 <= $_ <= 1),
+  #     'top'    => (defined( $_ ) && float( $_ )   && (0 <= $_ <= 1),
+  #     'width'  => (defined( $_ ) && float( $_ )   && (0 <= $_ <= 1),
+  #     'height' => (defined( $_ ) && float( $_ )   && (0 <= $_ <= 1),
+  #   }
+  #
+  # where region position and size is not all zero if the name is
+  # undefined.
+  #
+  # Force lowercase column names.
   $sth = $dbh->prepare( q{
     select objectid oid,
            personid pid,
@@ -659,11 +997,24 @@ eval {
          (! exists( $objs{$oid} )) ) {
       warn( "Cannot process undefined or invalid object ID of region (", s2s( $region ), ").\n" );
     }
-    elsif ( (! defined( $pid )) ||
-            (! defined( $region->{'left'} ))  ||
-            (! defined( $region->{'top'} ))   ||
-            (! defined( $region->{'width'} )) ||
-            (! defined( $region->{'height'} )) ) {
+    elsif ( (! defined( $pid ))                ||
+            (! defined( $region->{'left'} ))   ||
+            (! defined( $region->{'top'} ))    ||
+            (! defined( $region->{'width'} ))  ||
+            (! defined( $region->{'height'} )) ||
+            ($region->{'left'}   < 0)          ||
+            ($region->{'top'}    < 0)          ||
+            ($region->{'width'}  < 0)          ||
+            ($region->{'height'} < 0)          ||
+            ($region->{'left'}   > 1)          ||
+            ($region->{'top'}    > 1)          ||
+            ($region->{'width'}  > 1)          ||
+            ($region->{'height'} > 1)          ||
+            (($pid                == 0) &&
+             ($region->{'left'}   == 0) &&
+             ($region->{'top'}    == 0) &&
+             ($region->{'width'}  == 0) &&
+             ($region->{'height'} == 0)) ) {
       addwarning( $_, MSGID_INVALID_WPGMD,
                       MSGID_WPGMD_INVALID_REGION,
                       $region ) for ( @{$objs{$oid}} );
@@ -689,23 +1040,89 @@ eval {
                         $persons{$pid} ) for ( @{$objs{$oid}} );
       }
     }
+
+    lock_hashref( $region );
   }
 
 #}}}
 
 #{{{ read geotags and attach them to media objects
 
-  # read geotags
   $sth = $dbh->prepare( q{
     select locationid       id,
            locationname     name,
+           locationparentid pid,
            locationlat      lat,
-           locationlong     long,
-           locationparentid pid
+           locationlong     long
     from   tbllocation
   } );
   $sth->execute();
+
+  # read geotags into a hash mapping positive geotag IDs to path
+  # arrays of geotag nodes, where each geotag node has the
+  # following format (at least after completion of the loop
+  # below):
+  #
+  #   {
+  #     'id'       => (defined( $_ ) && integer( $_ ) && ($_ > 0)),
+  #     'name'     => (defined( $_ ) && string( $_ )  && (length( $_ ) > 0)),
+  #     'pid'      => (defined( $_ ) && integer( $_ ) && ($_ >= 0)),
+  #     'lat'      => (! defined( $_ )) ||
+  #                   (defined( $_ ) && float( $_ ) && (-90  <= $_ <= 90)),
+  #     'long'     => (! defined( $_ )) ||
+  #                   (defined( $_ ) && float( $_ ) && (-180 <= $_ <= 180)),
+  #     'xflat'    => (! defined( $_ )) ||
+  #                   (defined( $_ ) && xflat( $_ )),
+  #     'xflong'   => (! defined( $_ )) ||
+  #                   (defined( $_ ) && xflong( $_ )),
+  #     'warnings' => [ [ MSGID_WPGTAG_*, $object ], ...],
+  #   }
+  #
+  # where all GPS-related attributes are either all undefined or
+  # all defined and the 'xf*' attributes are the result of
+  # converting the raw, WPG-provided attributes into something
+  # EXIF-compatible.
   my $geotags = readtree( $sth );
+
+  # verify latitude and longitude values of geotag nodes and
+  # convert them into the EXIF format
+  for my $node ( map { @{$_} } values( %{$geotags} ) ) {
+    my $lat  = $node->{'lat'};
+    my $long = $node->{'long'};
+
+    if ( (exists( $node->{'xflat'} )) &&
+         (exists( $node->{'xflong'} )) ) {
+      # no-op
+    }
+    elsif ( (! defined( $lat )) &&
+            (! defined( $long )) ) {
+      $node->{'xflat'}  = undef();
+      $node->{'xflong'} = undef();
+    }
+    elsif ( (defined( $lat )) &&
+            (my @lat = ($lat =~ /^(-?)(\d+)\.(\d+)$/)) &&
+            (-90 <= $lat) && ($lat <= 90) &&
+            (defined( $long )) &&
+            (my @long = ($long =~ /^(-?)(\d+)\.(\d+)$/)) &&
+            (-180 <= $long) && ($long <= 180) ) {
+      my $latmins  = "0.$lat[2]"  * 60.0;
+      my $longmins = "0.$long[2]" * 60.0;
+      $node->{'xflat'}  = sprintf( "%d,%f%s", $lat[1], "0.$lat[2]" * 60.0,
+                                              ($lat[0] ? "S" : "N") );
+      $node->{'xflong'} = sprintf( "%d,%f%s", $long[1], "0.$long[2]" * 60.0,
+                                              ($long[0] ? "W" : "E") );
+    }
+    else {
+      $node->{'lat'}    = undef();
+      $node->{'long'}   = undef();
+      $node->{'xflat'}  = undef();
+      $node->{'xflong'} = undef();
+      push( @{$node->{'warnings'}},
+            [ MSGID_WPGTAG_INVALID_GPS, $node ] );
+    }
+
+    lock_hashref( $node );
+  }
 
   # attach geotags to objects
   $sth = $dbh->prepare( q{
@@ -750,7 +1167,6 @@ eval {
 
 #{{{ read tags and attach them to media objects
 
-  # read tags
   $sth = $dbh->prepare( q{
     select labelid       id,
            labelname     name,
@@ -758,7 +1174,21 @@ eval {
     from   tbllabel
   } );
   $sth->execute();
+
+  # read tags into a hash mapping positive tag IDs to path arrays
+  # of tag nodes, where each tag node has the following format:
+  #
+  #   {
+  #     'id'       => (defined( $_ ) && integer( $_ ) && ($_ > 0)),
+  #     'name'     => (defined( $_ ) && string( $_ )  && (length( $_ ) > 0)),
+  #     'pid'      => (defined( $_ ) && integer( $_ ) && ($_ >= 0)),
+  #     'warnings' => [ [ MSGID_WPGTAG_*, $object ], ...],
+  #   }
   my $tags = readtree( $sth );
+
+  for my $node ( map { @{$_} } values( %{$tags} ) ) {
+    lock_hashref( $node );
+  }
 
   # attach tags to objects
   $sth = $dbh->prepare( q{
@@ -797,9 +1227,10 @@ eval {
   # check whether we have metadata worth extracting
   for my $obj ( @objs ) {
     if ( continuep( $obj ) ) {
-      # probably consider "status" only if option "-pccl" has
-      # been specified (incomplete)
-      if ( ($obj->{'status'} == 0)         &&
+      # consider "status" only if option "-pccl" has been
+      # specified
+      if ( ((! defined( $xmpopts{'pccl'} )) ||
+            ($obj->{'status'} == 0))       &&
            (! defined( $obj->{'title'} ))  &&
            ($obj->{'rating'} == 0)         &&
            ($obj->{'flag'} == 0)           &&
@@ -866,7 +1297,7 @@ eval {
       elsif ( $xn eq $xno ) {
         adderror( $obj, MSGID_UNMAPPED_XFILE, $xno );
       }
-      elsif ( (-e $xn) && (! $force) ) {
+      elsif ( (-e $xn) && (($command ne "list") && (! $force)) ) {
         adderror( $obj, MSGID_EXISTING_XFILE, $xno, $xn );
       }
       elsif ( ! exists( $xns{$xn} ) ) {
@@ -884,18 +1315,20 @@ eval {
       }
     }
 
-    if ( continuep( $obj ) ) {
+    # call ExifTool only if required
+    if ( (continuep( $obj )) &&
+         (notall { ($_->{'left'}  == 0) && ($_->{'top'}    == 0) &&
+                   ($_->{'width'} == 0) && ($_->{'height'} == 0) } @{$obj->{'people'}}) ) {
       my $fn = $obj->{'fn'};
 
       # determine media file metadata
       my $info = $exiftool->ImageInfo( $fn,
-                                       [ 'File::MimeType',
-                                         'EXIF:Orientation',
+                                       [ 'IFD0:Orientation',
                                          'ExifTool:Warning',
                                          'ExifTool:Error' ],
                                        { 'PrintConv' => 0 } );
 
-      $obj->{'mime'}   = $info->{'MIMEType'};
+      # we do trust Phil, so no checks on these values
       $obj->{'xfornt'} = $info->{'Orientation'};
 
       # convert ExifTool warnings and errors into media object
@@ -916,6 +1349,9 @@ eval {
         adderror( $obj, MSGID_EXIFTOOL_ERRORS, \@xferrors );
       }
     }
+    elsif ( (continuep( $obj )) ) {
+      $obj->{'xfornt'} = undef();
+    }
   }
 
 #}}}
@@ -930,9 +1366,9 @@ eval {
   }
   my $okobjc  = $totobjc - $errobjc - $wrnobjc;
 
-#{{{ action "summary"
+#{{{ command "summary"
 
-  if ( $action eq "summary" ) {
+  if ( $command eq "summary" ) {
     print(  "Media object counts:\n" );
     print(  "\n" );
     printf( "  total                %6d\n", $totobjc );
@@ -973,16 +1409,16 @@ eval {
 
 #}}}
 
-#{{{ action "listerr"
+#{{{ command "listerr"
 
-  elsif ( $action eq "listerr" ) {
-    my @msgids = (scalar( @items ) > 0) ? @items : @MESSAGE_IDS;
-
+  elsif ( $command eq "listerr" ) {
     for my $msgid ( @msgids ) {
       if ( (scalar( @{$warnids{$msgid}} ) > 0) ||
            (scalar( @{$errids{$msgid}} ) > 0) ) {
         print( "$msgid\n" ) if ( $errfmt eq "structured" );
         for my $obj ( @{$warnids{$msgid}}, @{$errids{$msgid}} ) {
+          next if ( ! uiidmp( $obj->{'uiid'}, \@uiidms ) );
+
           for my $error ( grep { $_->[0] eq $msgid }
                                @{$obj->{'warnings'}},
                                @{$obj->{'errors'}} ) {
@@ -1029,49 +1465,49 @@ eval {
 
 #}}}
 
-#{{{ actions "dump", "list", "extract"
+#{{{ commands "dump", "list", "extract"
 
   else {
-    # same as above, limited to the current action execution
-    my $totobjca = 0;
-    my $errobjca = 0;
-    my $wrnobjca = 0;
-    my $okobjca  = 0;
+    # same as above, limited to the current command execution
+    my $totobjcc = 0;
+    my $errobjcc = 0;
+    my $wrnobjcc = 0;
+    my $okobjcc  = 0;
 
     for my $obj ( @objs ) {
-      if ( (uiidmp( $obj->{'uiid'}, \@items )) ) {
-        # update counters
-        $totobjca++;
-        if ( exists( $errobjs{$obj} ) ) {
-          $errobjca++;
-        }
-        elsif ( exists( $warnobjs{$obj} ) ) {
-          $wrnobjca++;
-        }
-        else {
-          $okobjca++;
-        }
+      next if ( ! uiidmp( $obj->{'uiid'}, \@uiidms ) );
 
-        # process action
-        if ( ($action eq "dump") ) {
-          print( Dumper( $obj ) );
-        }
-        elsif ( ($action eq "list") && (continuep( $obj )) ) {
-          print( $obj->{'uiid'}, "\n" );
-        }
-        elsif ( ($action eq "extract") && (continuep( $obj )) ) {
-        }
+      # update object counters
+      $totobjcc++;
+      if ( exists( $errobjs{$obj} ) ) {
+        $errobjcc++;
+      }
+      elsif ( exists( $warnobjs{$obj} ) ) {
+        $wrnobjcc++;
+      }
+      else {
+        $okobjcc++;
+      }
+
+      # process command
+      if ( ($command eq "dump") ) {
+        print( Dumper( $obj ) );
+      }
+      elsif ( ($command eq "list") && (continuep( $obj )) ) {
+        print( $obj->{'uiid'}, "\n" );
+      }
+      elsif ( ($command eq "extract") && (continuep( $obj )) ) {
+        writexmp( $obj, \%xmpopts );
       }
     }
 
-    print  STDERR ( "\n" );
-    print  STDERR ( "Media objects:\n" );
+    print  STDERR ( "Media objects statistics:\n" );
     printf STDERR ( "Total:    %6d, with errors: %5d, with warnings: %5d, OK: %5d\n",
                     $totobjc, $errobjc, $wrnobjc, $okobjc );
     printf STDERR ( "Selected: %6d, with errors: %5d, with warnings: %5d, OK: %5d\n",
-                    $totobjca, $errobjca, $wrnobjca, $okobjca );
-    if ( $action ne "dump" ) {
-    print  STDERR ( "Media objects with errors not processed.\n" );
+                    $totobjcc, $errobjcc, $wrnobjcc, $okobjcc );
+    if ( $command ne "dump" ) {
+    print  STDERR ( "Media objects with errors have not been processed.\n" );
     }
   }
 
