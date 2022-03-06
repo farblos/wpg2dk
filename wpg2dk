@@ -42,11 +42,11 @@ $Data::Dumper::Terse    = 1;
 # characters max.
 use constant MSGID_INVALID_WPGMD     => "invalid_wpgmd";
 use constant MSGID_NO_WPGMD          => "no_wpgmd";
-use constant MSGID_IGNORED_FILE      => "ignored_file";
+use constant MSGID_EMPTY_FILE        => "empty_file";
 use constant MSGID_UNMAPPED_FILE     => "unmapped_file";
 use constant MSGID_MISSING_FILE      => "missing_file";
 use constant MSGID_DUPLICATE_FILE    => "duplicate_file";
-use constant MSGID_IGNORED_XFILE     => "ignored_xfile";
+use constant MSGID_EMPTY_XFILE       => "empty_xfile";
 use constant MSGID_UNMAPPED_XFILE    => "unmapped_xfile";
 use constant MSGID_MISSING_XDIR      => "missing_xdir";
 use constant MSGID_EXISTING_XFILE    => "existing_xfile";
@@ -57,11 +57,11 @@ use constant MSGID_EXIFTOOL_ERRORS   => "exiftool_errors";
 my @MESSAGE_IDS = (
   MSGID_INVALID_WPGMD,
   MSGID_NO_WPGMD,
-  MSGID_IGNORED_FILE,
+  MSGID_EMPTY_FILE,
   MSGID_UNMAPPED_FILE,
   MSGID_MISSING_FILE,
   MSGID_DUPLICATE_FILE,
-  MSGID_IGNORED_XFILE,
+  MSGID_EMPTY_XFILE,
   MSGID_UNMAPPED_XFILE,
   MSGID_MISSING_XDIR,
   MSGID_EXISTING_XFILE,
@@ -73,11 +73,11 @@ my @MESSAGE_IDS = (
 my %MESSAGE_FORMATS = (                                         # type  parameters
   (MSGID_INVALID_WPGMD)     => "  %i:\n    %s => %o\n",         # warn. $uiid, $msgidwpgmd, $object
   (MSGID_NO_WPGMD)          => "  %i:\n",                       # error $uiid
-  (MSGID_IGNORED_FILE)      => "  %i:\n    %s\n",               # error $uiid, $fno
+  (MSGID_EMPTY_FILE)        => "  %i:\n    %s\n",               # error $uiid, $fno
   (MSGID_UNMAPPED_FILE)     => "  %i:\n    %s\n",               # error $uiid, $fno
   (MSGID_MISSING_FILE)      => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $fno, $fn
   (MSGID_DUPLICATE_FILE)    => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $fno, $fn
-  (MSGID_IGNORED_XFILE)     => "  %i:\n    %s\n",               # error $uiid, $xno
+  (MSGID_EMPTY_XFILE)       => "  %i:\n    %s\n",               # error $uiid, $xno
   (MSGID_UNMAPPED_XFILE)    => "  %i:\n    %s\n",               # error $uiid, $xno
   (MSGID_MISSING_XDIR)      => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $xno, $xdn
   (MSGID_EXISTING_XFILE)    => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $xno, $xn
@@ -247,7 +247,7 @@ sub catnodes
 }
 
 # reads the tree of (geo)tags from the specified statement handle
-# and returns it as a hash mapping tag ids to arrays consisting
+# and returns it as a hash mapping tag IDs to arrays consisting
 # of tag nodes
 #
 #   {
@@ -255,7 +255,7 @@ sub catnodes
 #      ...,
 #   }
 #
-# where tag node n has tag id <id> and tag node i-1 is the parent
+# where tag node n has tag ID <id> and tag node i-1 is the parent
 # node of tag node i.
 sub readtree
 {
@@ -357,7 +357,7 @@ sub uiidmp
 my %warnobjs = ();
 
 # hash that maps from message IDs to arrays of media objects
-# having some warning message
+# having at least one warning message with that ID
 my %warnids  = map { ($_ => []) } @MESSAGE_IDS;
 
 # adds the specified warning to the specified media object and
@@ -376,7 +376,7 @@ sub addwarning
 my %errobjs = ();
 
 # hash that maps from message IDs to arrays of media objects
-# having some error message
+# having at least one error message with that ID
 my %errids  = map { ($_ => []) } @MESSAGE_IDS;
 
 # adds the specified error to the specified media object and
@@ -1293,7 +1293,7 @@ eval {
       $obj->{'xn'}  = $xn;
 
       if ( length( $fn ) == 0 ) {
-        adderror( $obj, MSGID_IGNORED_FILE, $fno );
+        adderror( $obj, MSGID_EMPTY_FILE, $fno );
       }
       elsif ( $fn eq $fno ) {
         adderror( $obj, MSGID_UNMAPPED_FILE, $fno );
@@ -1322,7 +1322,7 @@ eval {
       my $xdn = dirname( $obj->{'xn'} );
 
       if ( length( $xn ) == 0 ) {
-        adderror( $obj, MSGID_IGNORED_XFILE, $xno );
+        adderror( $obj, MSGID_EMPTY_XFILE, $xno );
       }
       elsif ( $xn eq $xno ) {
         adderror( $obj, MSGID_UNMAPPED_XFILE, $xno );
@@ -1413,8 +1413,8 @@ eval {
 
     if ( $errobjc > 0 ) {
     print(  "\n" );
-    print(  "Media object counts by error category.  Objects having\n" );
-    print(  "errors with different categories are counted more than once.\n" );
+    print(  "Media object counts by error ID.  Objects having\n" );
+    print(  "errors with different ID are counted more than once.\n" );
     print(  "\n" );
     for my $msgid ( @MESSAGE_IDS ) {
     if ( scalar( @{$errids{$msgid}} ) > 0 ) {
@@ -1425,9 +1425,9 @@ eval {
 
     if ( $wrnobjc > 0 ) {
     print(  "\n" );
-    print(  "Media object counts by warning category.  Objects having errors\n" );
-    print(  "are not counted here.  Objects having warnings with different\n" );
-    print(  "categories are counted more than once.\n" );
+    print(  "Media object counts by warning ID.  Objects having errors\n" );
+    print(  "are not counted here.  Objects having warnings with\n" );
+    print(  "different IDs are counted more than once.\n" );
     print(  "\n" );
     for my $msgid ( @MESSAGE_IDS ) {
     if ( scalar( @{$warnids{$msgid}} ) > 0 ) {
