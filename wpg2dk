@@ -25,6 +25,8 @@ use warnings                    qw( FATAL all );
 use DBI                         qw();
 use DBD::SQLite::Constants      qw( :file_open );
 use Data::Dumper                qw( Dumper );
+use File::Basename              qw( dirname );
+use File::Path                  qw( make_path );
 use File::Spec::Functions       qw( catfile );
 use Getopt::Long                qw( GetOptions :config no_ignore_case bundling );
 use Hash::Util                  qw( lock_hashref lock_ref_keys_plus );
@@ -46,6 +48,7 @@ use constant MSGID_MISSING_FILE      => "missing_file";
 use constant MSGID_DUPLICATE_FILE    => "duplicate_file";
 use constant MSGID_IGNORED_XFILE     => "ignored_xfile";
 use constant MSGID_UNMAPPED_XFILE    => "unmapped_xfile";
+use constant MSGID_MISSING_XDIR      => "missing_xdir";
 use constant MSGID_EXISTING_XFILE    => "existing_xfile";
 use constant MSGID_DUPLICATE_XFILE   => "duplicate_xfile";
 use constant MSGID_EXIFTOOL_WARNINGS => "exiftool_warnings";
@@ -60,6 +63,7 @@ my @MESSAGE_IDS = (
   MSGID_DUPLICATE_FILE,
   MSGID_IGNORED_XFILE,
   MSGID_UNMAPPED_XFILE,
+  MSGID_MISSING_XDIR,
   MSGID_EXISTING_XFILE,
   MSGID_DUPLICATE_XFILE,
   MSGID_EXIFTOOL_WARNINGS,
@@ -75,6 +79,7 @@ my %MESSAGE_FORMATS = (                                         # type  paramete
   (MSGID_DUPLICATE_FILE)    => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $fno, $fn
   (MSGID_IGNORED_XFILE)     => "  %i:\n    %s\n",               # error $uiid, $xno
   (MSGID_UNMAPPED_XFILE)    => "  %i:\n    %s\n",               # error $uiid, $xno
+  (MSGID_MISSING_XDIR)      => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $xno, $xdn
   (MSGID_EXISTING_XFILE)    => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $xno, $xn
   (MSGID_DUPLICATE_XFILE)   => "  %i:\n    %s =>\n    %s\n",    # error $uiid, $xno, $xn
   (MSGID_EXIFTOOL_WARNINGS) => "  %i: %o\n",                    # warn. $uiid, \@xfwarnings
@@ -437,6 +442,12 @@ sub writexmp
 {
   my ( $obj, $xmpopts ) = @_;
 
+  # create intermediate directories if needed
+  my $xdn = dirname( $obj->{'xn'} );
+  if ( (! -d $xdn) && ($main::mkdir) ) {
+    make_path( $xdn );
+  }
+
   my $xmpfn = $obj->{'xn'};
   my $xmpf  = undef();
   unless ( open( $xmpf, ">", $xmpfn ) ) {
@@ -507,7 +518,8 @@ EOX
     }
 
     # mirror region horizontally
-    if ( ($xfornt == 2) || ($xfornt == 4) || ($xfornt == 5) || ($xfornt == 7) ) {
+    if ( (defined( $xfornt )) &&
+         (($xfornt == 2) || ($xfornt == 4) || ($xfornt == 5) || ($xfornt == 7)) ) {
       $top    = 1 - $top  - $height;
     }
 
@@ -660,13 +672,14 @@ if ( ! exists( $COMMANDS{$command} ) ) {
   usage( "Invalid command \"$command\" specified." );
 }
 
-my $force   = 0;
-my @mmap    = ();
-my @xmap    = ();
-my $idtp    = "filename";
-my $errfmt  = "structured";
-my @msgids  = ();
-my %xmpopts = (
+my  $force   = 0;
+our $mkdir   = 0;
+my  @mmap    = ();
+my  @xmap    = ();
+my  $idtp    = "filename";
+my  $errfmt  = "structured";
+my  @msgids  = ();
+my  %xmpopts = (
   'pccl'    => undef(),
   'gtr'     => "Location",
   'gtags'   => TAG_STRUCT_PATH,
@@ -677,6 +690,7 @@ my %xmpopts = (
   my $error = undef();
   local $SIG{'__WARN__'} = sub { $error = bue( $_[0] ) };
   if ( ! GetOptions( "f|force"             => \$force,
+                       "mkdir"             => \$mkdir,
                      "m|mmap=s"            => \@mmap,
                      "x|xmap=s"            => \@xmap,
                      "i|idtype=s"          => \$idtp,
@@ -1305,6 +1319,7 @@ eval {
     if ( continuep( $obj ) ) {
       my $xno = $obj->{'xno'};
       my $xn  = $obj->{'xn'};
+      my $xdn = dirname( $obj->{'xn'} );
 
       if ( length( $xn ) == 0 ) {
         adderror( $obj, MSGID_IGNORED_XFILE, $xno );
@@ -1312,7 +1327,12 @@ eval {
       elsif ( $xn eq $xno ) {
         adderror( $obj, MSGID_UNMAPPED_XFILE, $xno );
       }
-      elsif ( (-e $xn) && (($command ne "list") && (! $force)) ) {
+      elsif ( (! -d $xdn) && (! $mkdir) ) {
+        adderror( $obj, MSGID_MISSING_XDIR, $xno, $xdn );
+      }
+      # allow existing intermediate XMP files for command "list"
+      # or otherwise the "piped option" would not be possible
+      elsif ( (-e $xn) && (! $force) && ($command ne "list") ) {
         adderror( $obj, MSGID_EXISTING_XFILE, $xno, $xn );
       }
       elsif ( ! exists( $xns{$xn} ) ) {
