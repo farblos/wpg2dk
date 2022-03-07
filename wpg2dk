@@ -672,6 +672,7 @@ if ( ! exists( $COMMANDS{$command} ) ) {
   usage( "Invalid command \"$command\" specified." );
 }
 
+my  $quiet   = 0;
 my  $force   = 0;
 our $mkdir   = 0;
 my  @mmap    = ();
@@ -689,18 +690,19 @@ my  %xmpopts = (
 {
   my $error = undef();
   local $SIG{'__WARN__'} = sub { $error = bue( $_[0] ) };
-  if ( ! GetOptions( "f|force"             => \$force,
-                       "mkdir"             => \$mkdir,
-                     "m|mmap=s"            => \@mmap,
-                     "x|xmap=s"            => \@xmap,
-                     "i|idtype=s"          => \$idtp,
-                     "e|error_format=s"    => \$errfmt,
-                     "M|message_id=s"      => \@msgids,                 # "listerr" only
-                       "pccl=s"            => \$xmpopts{'pccl'},        # "extract" only
-                     "r|geotagroot=s"      => \$xmpopts{'gtr'},         # "extract" only
-                     "g|geotags=s"         => \$xmpopts{'gtags'},       # "extract" only
-                     "t|tags=s"            => \$xmpopts{'tags'},        # "extract" only
-                     "p|pl=s"              => \$xmpopts{'pl'} ) ) {     # "extract" only
+  if ( ! GetOptions( "q|quiet"          => \$quiet,
+                     "f|force"          => \$force,
+                       "mkdir"          => \$mkdir,
+                     "m|mmap=s"         => \@mmap,
+                     "x|xmap=s"         => \@xmap,
+                     "i|idtype=s"       => \$idtp,
+                     "e|error_format=s" => \$errfmt,
+                     "M|message_id=s"   => \@msgids,                    # "listerr" only
+                       "pccl=s"         => \$xmpopts{'pccl'},           # "extract" only
+                     "r|geotagroot=s"   => \$xmpopts{'gtr'},            # "extract" only
+                     "g|geotags=s"      => \$xmpopts{'gtags'},          # "extract" only
+                     "t|tags=s"         => \$xmpopts{'tags'},           # "extract" only
+                     "p|pl=s"           => \$xmpopts{'pl'} ) ) {        # "extract" only
     usage( "Invalid commandline parameters specified ($error)." );
   }
 }
@@ -1536,13 +1538,15 @@ eval {
       }
     }
 
-    print  STDERR ( "Media objects statistics:\n" );
-    printf STDERR ( "Total:    %6d, with errors: %5d, with warnings: %5d, OK: %5d\n",
-                    $totobjc, $errobjc, $wrnobjc, $okobjc );
-    printf STDERR ( "Selected: %6d, with errors: %5d, with warnings: %5d, OK: %5d\n",
-                    $totobjcc, $errobjcc, $wrnobjcc, $okobjcc );
-    if ( $command ne "dump" ) {
-    print  STDERR ( "Media objects with errors have not been processed.\n" );
+    if ( ! $quiet ) {
+      print  STDERR ( "Media objects statistics:\n" );
+      printf STDERR ( "Total:    %6d, with errors: %5d, with warnings: %5d, OK: %5d\n",
+                      $totobjc, $errobjc, $wrnobjc, $okobjc );
+      printf STDERR ( "Selected: %6d, with errors: %5d, with warnings: %5d, OK: %5d\n",
+                      $totobjcc, $errobjcc, $wrnobjcc, $okobjcc );
+      if ( $command ne "dump" ) {
+      print  STDERR ( "Media objects with errors have not been processed.\n" );
+      }
     }
   }
 
