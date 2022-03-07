@@ -51,15 +51,17 @@ attributes are specific to digiKam, however, but at least
 ExifTool should be able to convert these to non-digiKam-specific
 attributes.
 
-For the WPG and digiKam version, see section section [Background
-and Version Information](#background-and-version-information).
+For the the tool versions I have used for developing and testing
+`wpg2dk` and this readme, see section [Background and Version
+Information](#background-and-version-information).
 
 ## Migration Process Prerequisites and Miscellaneous
 
 This document describes the migration process as done on Windows
 (for extracting the WPG metadata) and on GNU/Linux (for all
 remaining steps).  It should be possible to complete the whole
-migration process on Windows, but I have not tested that.
+migration process on Windows, but I have not described nor tested
+that.
 
 Regardless of operating system, `wpg2dk` requires a recent Perl
 and non-standard Perl modules `DBI`, `DBD::SQLite`, and
@@ -68,7 +70,8 @@ your distribution's package system or (on any operating system)
 can be downloaded and installed from CPAN.
 
 For injecting the metadata into the media files as described in
-this readme, one also needs a recent installation of ExifTool.
+this readme, one also needs a recent installation of
+[ExifTool](https://exiftool.org).
 
 When migrating your media files, use the general common sense for
 such projects.  For example:
@@ -94,14 +97,16 @@ highly non-trivial process, so I decided to better delegate that
 to ExifTool with its plethora of featues to select tags, files to
 process, etc.
 
-To avoid confusion: "Tags" in WPG, digiKam, and this
-documentation denote descriptive attributes that can be attached
-to media files, like geotags or people tags.  In ExifTool, a
-"tag" denotes the smallest unit of metadata that can be
-processed.  An attribute that contains a WPG tag is called
-"keyword" in ExifTool.  Finally, this documentation and `wpg2dk`
-use the term "attribute" to refer parts of metadata.  So we have
-more or less this translation table:
+## Tags, Keywords, Attributes
+
+To avoid confusion: "Tags" in WPG, digiKam, `wpg2dk` and this
+documentation denote text attributes that can be attached to
+media files, like geotags, people tags, or general descriptive
+tags.  In ExifTool a "tag" denotes the smallest unit of metadata
+that can be processed.  An attribute that contains a WPG tag is
+called "keyword" in ExifTool.  Finally, this documentation and
+`wpg2dk` use the term "attribute" to refer to parts of metadata.
+So we have more or less this translation table:
 
 | WPG, digiKam, `wpg2dk` | ExifTool | `wpg2dk`  |
 |:-----------------------|:---------|:----------|
@@ -240,8 +245,8 @@ As a first step, run `wpg2dk` with command `summary`, like this:
       with warnings             0
       without any issues        0
 
-    Media object counts by error category.  Objects having
-    errors with different categories are counted more than once.
+    Media object counts by error ID.  Objects having
+    errors with different IDs are counted more than once.
 
       no_wpgmd               1248
       unmapped_file          3121
@@ -249,13 +254,12 @@ As a first step, run `wpg2dk` with command `summary`, like this:
     Use command "listerr" to list objects with errors or warnings.
 
 Initially, this most likely lists only media objects with error
-categories `no_wpgmd` and `unmapped_file`.  The former do not
-have any WPG metadata (as listed in the previous section) stored
-in the database, so there is nothing to export for these.  For
-media objects with error category `unmapped_file`, no mapping is
-defined to map the file path information in the WPG metadata to
-actual media files, so we will focus on these with command
-`listerr`:
+IDs `no_wpgmd` and `unmapped_file`.  The former do not have any
+WPG metadata (as listed in the previous section) stored in the
+database, so there is nothing to export for these.  For media
+objects with error ID `unmapped_file`, no mapping is defined to
+map the file path information in the WPG metadata to actual media
+files.  We will focus on these with command `listerr`:
 
     [wpg2dk]$ ./wpg2dk listerr -M unmapped_file "$wpgsqlitedir/Pictures.db" | head -5
     unmapped_file
@@ -264,8 +268,8 @@ actual media files, so we will focus on these with command
       #2/images/00/dsc-0008.jpg:
         #2/images/00/dsc-0008.jpg
 
-Command `listerr` with error category `unmapped_file` specified
-lists all media objects having that error category.  The lines
+Command `listerr` with parameter `-M unmapped_file` specified
+lists all media objects having an error with that ID.  The lines
 indented by two blanks provide the UIID of the media object, the
 lines indented by four blanks its (yet unmapped) file name.  Both
 UIIDs and file names use path separators according to the OS
@@ -277,22 +281,25 @@ identifier that is used to identify media objects with `wpg2dk`.
 By default, the UIID coincides with the file name, but there are
 different formats for the UIID available.
 
-The WPG metadata refers to the volumes that contain (or have
-contained) the media files by volume ID.  These are the numbers
-behind the initial hash signs seen above.  The rest of the media
-file paths consists of their directory path on the volume and
-their file name.
+The WPG metadata refers to the volumes that contain the media
+files by volume ID.  These are the numbers behind the initial
+hash signs seen above.  The rest of the media file names consists
+of their directory path on the volume and their file name as
+found in the WPG metadata.  The result of these three items
+joined together with the path separator in between we call
+"pseudo file name".
 
 `wpg2dk` does not have the information on the drive letters that
 are used or have been used to mount the volumes referenced in
-these file names.  So it is basically up to you to identify the
+these file names.  So it is basically up to us to identify the
 correct volumes by the remainder of the file paths.  In the case
 of our example, volume 2 happens to be the NTFS volume labeled
-"archive".  That we have mounted on path `/media/archive`, so we
-must map somehow the volume prefix `#2/` to `/media/archive/`.
+"archive".  Assume we have mounted that on path `/media/archive`,
+so we must map somehow the volume prefix `#2/` to
+`/media/archive/`.
 
-To do so, we use command line option `--mmap
-'<source>=<destination>'`, like in the following example:
+To do so, we specify a media file map with command line option
+`--mmap '<source>=<destination>'`, like in the following example:
 
     [wpg2dk]$ ./wpg2dk summary --mmap '#2/images/00/=/media/archive/images/00/' \
               "$wpgsqlitedir/Pictures.db"
@@ -303,8 +310,8 @@ To do so, we use command line option `--mmap
       with warnings             0
       without any issues      153
 
-    Media object counts by error category.  Objects having
-    errors with different categories are counted more than once.
+    Media object counts by error ID.  Objects having
+    errors with different IDs are counted more than once.
 
       no_wpgmd               1248
       unmapped_file          2968
@@ -313,8 +320,8 @@ To do so, we use command line option `--mmap
 
 In above example, we have chosen to map only a subset of the
 media objecs (those below subdirectory `/images/00`), just to
-check wether the mapping works at all.  It does, since now 153
-media objects got processed "without any issues" according to the
+check wether the map works at all.  It does, since now 153 media
+objects got processed "without any issues" according to the
 report.  So we can now try to map all media objects:
 
     [wpg2dk]$ ./wpg2dk summary --mmap '#2/=/media/archive/' \
@@ -326,14 +333,14 @@ report.  So we can now try to map all media objects:
       with warnings           722
       without any issues     2399
 
-    Media object counts by error category.  Objects having
-    errors with different categories are counted more than once.
+    Media object counts by error ID.  Objects having
+    errors with different IDs are counted more than once.
 
       no_wpgmd               1248
 
-    Media object counts by warning category.  Objects having errors
-    are not counted here.  Objects having warnings with different
-    categories are counted more than once.
+    Media object counts by warning ID.  Objects having errors
+    are not counted here.  Objects having warnings with
+    different IDs are counted more than once.
 
       exiftool_warnings       722
 
@@ -347,27 +354,71 @@ files using ExifTool to determine their orientation.
 ExifTool is quite picky with respect to metadata quality and
 finds a lot of problems in the metadata generated by camera
 vendors or by WPG itself.  As long as these problems are only
-warnings (which are registered with warning category
+warnings (which are registered with warning ID
 `exiftool_warnings`), they can be most likely simply ignored.
 
-(incomplete)
+Futhermore, not all issues called "errors" by `wpg2dk` refer to
+real errors that need some extra care or fixing.  Many of these
+errors just mean: "with the current state of metadata it does not
+make any sense to further process this media object."  The best
+example is "error" `no_wpgmd` for some media object, where
+`wpg2dk` simply has no work to do and, hence, does not continue
+processing that object.
 
-- describe that not all errors are "errors" but rather conditions
-  where its does not make sense for `wpg2dk` to continue
-  processing
+After the mapping has been established we can do the final step
+and extract the WPG metadata to the intermediate XMP files:
 
-- give an example of excluding and including media objects
+    [wpg2dk]$ ./wpg2dk extract --mmap '#2/=/media/archive/' \
+              "$wpgsqlitedir/Pictures.db"
+    Media objects statistics:
+    Total:      4369, with errors:  1248, with warnings:   722, OK:  2399
+    Selected:   4369, with errors:  1248, with warnings:   722, OK:  2399
+    Media objects with errors have not been processed.
 
-- give an example of command list
+In the default configuration, `wpg2dk` creates intermediate XMP
+files in the same directory as the media files, but with
+extension `.wpg2dk.xmp`.  Like this:
 
-- describe generation of xmp files
+    [wpg2dk]$ ls -l /media/archive/images/00/ | head
+    total 455840
+    -rw-r--r-- 1 farblos farblos 1302611 Apr 21  2007 dsc-0005.jpg
+    -rw-r--r-- 1 farblos farblos 1263321 Apr 21  2007 dsc-0006.jpg
+    -rw-r--r-- 1 farblos farblos 1205224 Jan  6  2015 dsc-0007.jpg
+    -rw-r--r-- 1 farblos farblos    1064 Mar  7 21:43 dsc-0007.jpg.wpg2dk.xmp
+    -rw-r--r-- 1 farblos farblos 1281692 Jan  8  2015 dsc-0008.jpg
+    -rw-r--r-- 1 farblos farblos    1062 Mar  7 21:43 dsc-0008.jpg.wpg2dk.xmp
+    -rw-r--r-- 1 farblos farblos 1287181 Jan  6  2015 dsc-0009.jpg
+    -rw-r--r-- 1 farblos farblos 1278844 Apr 21  2007 dsc-0010.jpg
+    -rw-r--r-- 1 farblos farblos 1284972 Jan  8  2015 dsc-0011.jpg
 
-*Notes*:
+(There are no intermediate XMP files for some of the images shown
+above because these do not contain any WPG metadata.)
 
-- `wpg2dk` expects the media files exactly where specified by the
-  WPG metadata database.  And it places the intermediate XMP
-  files with extension `.xmp` alongside with the original media
-  files.
+You can use command line option `--xmap` to change the extension
+that `wpg2dk` appends to the media files.  You can use that
+option also to let `wpg2dk` create the intermediate XMP files in
+a completely different directory, separated from the media files.
+The following instructions related to ExifTool, however, assume
+the default configuration.
+
+Besides the `wpg2dk` commands `summary`, `listerr`, and `extract`
+demonstrated above there is also command `list`, that writes the
+names of all media files for which intermediate XMP files have
+been created (or will be created) to STDOUT:
+
+    [wpg2dk]$ ./wpg2dk list --quiet --mmap '#2/=/media/archive/' \
+              "$wpgsqlitedir/Pictures.db" | wc -l
+    3121
+
+Command `list` is particularly useful for calling ExifTool in the
+so-called "piped option" as shown in the next section, where the
+file list written by `wpg2dk` is piped into ExifTool as input.
+
+In general, the `wpg2dk` commands are completely interchangeable.
+So if you have set up a command line with a complicated map and
+other options for the `extract` command, you can simply exchange
+command `extract` by command `list` call `wpg2dk` with the
+resulting command line.
 
 ## Injecting the WPG Metadata
 
@@ -399,20 +450,36 @@ configured (in `Settings` -> `Configure digiKam` -> `Metadata` ->
 leave that all on default and rather use ExifTool to come out
 with (hopefully) unambiguous metadata.
 
-In the next section I first provide the bare skeleton command to
-specify which intermediate XMP files to merge into what media
-files, not caring about merge conflicts at all.  After that, I
-describe for each attribute group processed by `wpg2dk` how to
-merge the attributes of that group into the media files without
-causing any conflicts.
+In the next section I first provide the bare skeleton ExifTool
+command to specify which intermediate XMP files to merge into
+what media files, not caring about merge conflicts at all.  After
+that, I describe for each attribute group processed by `wpg2dk`
+(people tags, geotag, etc.) how to merge the attributes of that
+group into the media files without causing any conflicts.
+
+The general idea is that from these sections you pick those that
+you actually need and apply the contained ExifTool commands step
+by step, possibly further modifying them to your needs.  See the
+the examples in the [ExifTool application
+documentation](https://exiftool.org/exiftool_pod.html) for more
+information.
 
 Except for the GPS coordinates, I chose not to care about any
 metadata possibly present in the media files and to simply
-overwrite all attribues with what `wpg2dk` has generated.  Refer
-to the ExifTool documentation and change the statements provided
-below to customize that approach to your needs.
+overwrite all attributes with what `wpg2dk` has generated.
+Again, refer to the ExifTool documentation and change the
+statements provided below to customize that approach to your
+needs.
 
-(incomplete) Define "all attributes".
+Above reference to "all attributes" requires probably some
+explanation: The ExifTool invocations in the following sections
+clean up all metadata attributes that both WPG or digiKam may
+have written to a media file to store any of [people
+tags](#people-tags), [geotag](#geotag), [caption](#caption),
+[descriptive tags](#descriptive-tags), [rating](#rating), or
+[flag](#flag).  See the metadata attributes labeled "WPG
+attributes" and "DK attributes" in the respective referenced
+sections for details.
 
 Finally, digiKam has the option to manage metadata in sidecar XMP
 files (and these are the main reason why the intermedia XMP files
@@ -447,9 +514,9 @@ where the command line parameters have the following meaning:
   detailed in the following sections.  If not specified, no
   attributes are cleaned up.
 
-- `-tagsFromFile '%d%F.wpg2dk.xmp'`: read all metadata attributes
-  from the intermediate XMP files and inject them into the media
-  files
+- `-tagsFromFile '%d%F.wpg2dk.xmp'`: read metadata attributes
+  from the intermediate XMP files associated to the media files
+  (`%d%F`) and inject them into the media files
 
 - `<tag-to-copy-from-xmp> ...`: list of attributes to merge from
   the intermediate XMP files - to be detailed in the following
@@ -465,7 +532,8 @@ where the command line parameters have the following meaning:
 
 To continue our above example, we would execute ExifTool as
 follows to merge all attributes from the intermediate XMP files
-without cleaning up any existing attributes:
+without cleaning up any existing attributes (which is probably
+not advisable!):
 
     exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
@@ -480,9 +548,9 @@ specify the files it should process (called "piped option"):
 
     # list file processed above and feed that to ExifTool
     wpg2dk list <exactly-same-parameters-as-above> |
-    exiftool [<tag-to-clean-up> ...]         \
-             -tagsFromFile '%d%F.wpg2dk.xmp' \
-             [<tag-to-copy-from-xmp> ...]    \
+    exiftool [<tag-to-clean-up> ...]                    \
+             -tagsFromFile '%d%F.wpg2dk.xmp'            \
+             [<tag-to-copy-from-xmp> ...]               \
              -q -q -@ -
 
 where the only ExifTool command line parameter `-@ -` not yet
@@ -492,10 +560,10 @@ namely the names of the media files to process, from the pipe.
 ### Cleaning Up all Tags
 
 `wpg2dk` uses tags to provide information on people tags,
-geotags, and regular, descriptive tags. It is somewhat difficult
-to clean these up separately, so I decided to add an initial
-preparation step that simply cleans up all possible existing tags
-from the media files.
+geotags, and regular, descriptive tags.  It is somewhat difficult
+to clean up each of these groups separately, so I decided to add
+an initial preparation step that simply cleans up all possible
+existing tags from the media files.
 
 Specify the following parameter to ExifTool to achieve that
 (recursive option):
@@ -521,7 +589,7 @@ For the piped option use the following command:
 `wpg2dk` converts WPG's people tags to:
 
 - face region information
-- people tags starting with prefix `People/`
+- people tags starting with prefix `People`
 - optional people completeness color label, if command line
   parameter `-pccl` is specified
 
@@ -531,68 +599,92 @@ ExifTool (recursive option):
     exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
              -XMP-MP:RegionInfoMP=                      \
              -XMP-mwg-rs:RegionInfo=                    \
-             -XMP-xmp:Label=                            \
              -XMP-digiKam:ColorLabel=                   \
+             -XMP-xmp:Label=                            \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-MP:RegionInfoMP                       \
              -XMP-digiKam:ColorLabel                    \
              -separator $'\001'                         \
-             '-XMP-digikam:TagsList+<${XMP-digikam:TagsList;
-              $_ = join "\001", grep {m{^People/}} split "\001", $_}' \
+             '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
+              $_ = undef unless m{^People/}}'           \
              -q -q -r <media-directory> ...
 
 If you do not use that dubious people completeness color label,
-you can omit the parameters related to attributes `XMP-xmp:Label`
-and `XMP-digiKam:ColorLabel` from the above command line.
+you can omit the parameters related to attributes
+`XMP-digiKam:ColorLabel` and `XMP-xmp:Label` from the above
+command line.
 
 Command line parameter `-separator $'\001'` (ASCII character 001,
-Control-A) and the lengthy `-XMP-digikam:TagsList+<...` parameter
+Control-A) and the lengthy `-XMP-digiKam:TagsList+<...` parameter
 following it is required so that we can filter the
-`XMP-digikam:TagsList` attribute element-wise.  The parameter
-uses ExifTool's advanced formatting feature as follows (read the
-comments from bottom up):
-
-             '-XMP-digikam:TagsList
-                # append new value to existing tags
-                +<${
-                     XMP-digikam:TagsList;
-                     # use that as new value
-                     $_ =
-                     # join remaining tags into one
-                     # string again
-                     join "\001",
-                     # select only people tags
-                     grep { m{^People/} }
-                     # split it on separator char
-                     split "\001",
-                     # use tag list from intermediate
-                     # XMP file as one string
-                     $_
-                   }'
+`XMP-digiKam:TagsList` attribute element-wise.  The parameter
+uses ExifTool's advanced formatting feature to remove (`$_ =
+undef`) those elemens that are not people tags (`unless
+m{^People/}`).
 
 For the piped option use the following command:
 
     wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
-    wpg2dk-list |
     exiftool -XMP-MP:RegionInfoMP=                      \
              -XMP-mwg-rs:RegionInfo=                    \
-             -XMP-xmp:Label=                            \
              -XMP-digiKam:ColorLabel=                   \
-             -tagsFromFile '%d%F.wpg2dk.xmp'            \
+             -XMP-xmp:Label=                            \
+             -addTagsfromfile '%d%F.wpg2dk.xmp'         \
              -XMP-MP:RegionInfoMP                       \
              -XMP-digiKam:ColorLabel                    \
              -separator $'\001'                         \
-             '-XMP-digikam:TagsList+<${XMP-digikam:TagsList@;
+             '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef unless m{^People/}}'           \
              -q -q -@ -
 
 ### Merging Geotags
 
-Note that the attributes `XMP-exif:GPSLatitudeRef` and
-`XMP-exif:GPSLongitudeRef` written by digiKam are not documented
-nor supported for writing by ExifTool.  To get rid of these with
-ExifTool one needs an additional configuration file that declares
-them as custom attributes:
+`wpg2dk` converts WPG's geotags to:
+
+- geotags starting with the prefix provided by command line
+  parameter `-geotagroot`, by default `Location`
+- GPS coordinates of the most specific geotag
+
+Unfortunately, we have to process these in two separate ExifTool
+calls, one for the geotags and one for the GPS coordinates.
+
+Below command lines for merging the geotags assume that you have
+used the default `Location` as geotag root tag.  If you have used
+a different root tag, you must change the reference to it in
+below command line accordingly.  Use the following ExifTool
+parameters for the recursive option:
+
+    exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
+             -tagsFromFile '%d%F.wpg2dk.xmp'            \
+             -separator $'\001'                         \
+             '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
+              $_ = undef unless m{^Location/}}'         \
+             -q -q -r <media-directory> ...
+
+And these for the piped option:
+
+    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
+    exiftool -tagsFromFile '%d%F.wpg2dk.xmp'            \
+             -separator $'\001'                         \
+             '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
+              $_ = undef unless m{^Location/}}'         \
+             -q -q -@ -
+
+Since the GPS coordinates determined from WPG's geotags are
+rather coarse, any existing GPS coordinates should not be
+overwritten with these.  So we need another condition to avoid
+touching any media files that have any GPS metadata attributes
+set already, like this:
+
+    -if '! %{$self->GetInfo("GPS*")}'
+
+As an additional complexity, digiKam versions older than 7.6.0
+write bogus attributes `XMP-exif:GPSLatitudeRef` and
+`XMP-exif:GPSLongitudeRef` to media files (see [digiKam bug
+450982](https://bugs.kde.org/show_bug.cgi?id=450982)).  ExifTool
+does not support these out of the box, even not for removal.  To
+get rid of these with ExifTool one needs an additional
+configuration file that declares them as custom attributes:
 
     %Image::ExifTool::UserDefined = (
       'Image::ExifTool::XMP::exif' => {
@@ -605,10 +697,33 @@ them as custom attributes:
 Save above lines in a file, say, `xmp-exif-gpsref.pm` that we
 will reference in the command lines below.
 
+Recursive option:
+
+    exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
+             -if '! %{$self->GetInfo("GPS*")}'          \
+             -config xmp-exif-gpsref.pm                 \
+             -XMP-exif:GPSLatitudeRef=                  \
+             -XMP-exif:GPSLongitudeRef=                 \
+             -tagsFromFile '%d%F.wpg2dk.xmp'            \
+             -separator $'\001'                         \
+             -XMP-exif:GPSL*itude                       \
+             -q -q -r <media-directory> ...
+
+Piped option:
+
+    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
+    exiftool -config xmp-exif-gpsref.pm                 \
+             -if '! %{$self->GetInfo("GPS*")}'          \
+             -XMP-exif:GPSLatitudeRef=                  \
+             -XMP-exif:GPSLongitudeRef=                 \
+             -tagsFromFile '%d%F.wpg2dk.xmp'            \
+             -separator $'\001'                         \
+             -XMP-exif:GPSL*itude                       \
+             -q -q -@ -
+
 ### Merging Captions
 
-Lots of tags attributes to clean up, one to merge (recursive
-option):
+Lots of attributes to clean up, one to merge (recursive option):
 
     exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
              -IFD0:ImageDescription=                    \
@@ -624,7 +739,6 @@ option):
 Piped option:
 
     wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
-    wpg2dk-list |
     exiftool -IFD0:ImageDescription=                    \
              -IFD0:XPTitle=                             \
              -XMP-dc:Description=                       \
@@ -648,17 +762,16 @@ option):
 
     exiftool -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -separator $'\001'                         \
-             '-XMP-digikam:TagsList+<${XMP-digikam:TagsList@;
+             '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef if m{^(People|Location)/}}'    \
              -q -q -r <media-directory> ...
 
 Piped option:
 
     wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
-    wpg2dk-list |
-    exiftool -tagsFromFile '%d%F.wpg2dk.xmp'            \
+    exiftool -addTagsFromFile '%d%F.wpg2dk.xmp'         \
              -separator $'\001'                         \
-             '-XMP-digikam:TagsList+<${XMP-digikam:TagsList@;
+             '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef if m{^(People|Location)/}}'    \
              -q -q -@ -
 
@@ -679,7 +792,6 @@ This one is a bit simpler (recursive option):
 Piped option:
 
     wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
-    wpg2dk-list |
     exiftool -IFD0:Rating=                              \
              -IFD0:RatingPercent=                       \
              -XMP-acdsee:Rating=                        \
@@ -691,21 +803,20 @@ Piped option:
 
 ### Merging Flags
 
-And even more simple (recursive option):
+And this one even more simple (recursive option):
 
     exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
-             -XMP-digikam:PickLabel=                    \
+             -XMP-digiKam:PickLabel=                    \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
-             -XMP-digikam:PickLabel                     \
+             -XMP-digiKam:PickLabel                     \
              -q -q -r <media-directory> ...
 
 Piped option:
 
     wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
-    wpg2dk-list |
-    exiftool -XMP-digikam:PickLabel=                    \
-             -tagsFromFile '%d%F.wpg2dk.xmp'            \
-             -XMP-digikam:PickLabel                     \
+    exiftool -XMP-digiKam:PickLabel=                    \
+             -addTagsfromfile '%d%F.wpg2dk.xmp'         \
+             -XMP-digiKam:PickLabel                     \
              -q -q -@ -
 
 ### Undoing ExifTool's Changes
@@ -725,7 +836,7 @@ command (recursive option):
 
 For the piped option use the following command:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extract> |
+    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -restore_original \
              -q -q -@ -
 
@@ -737,6 +848,61 @@ For easier exchange of commands on the command line, all commands
 accept all parameters, even if the parameters do not have any
 effect on the command.  For example, almost all XMP-related
 parameters have an effect only on command `extract`.
+
+### `wpg2dk` Media Object Errors and Warnings
+
+`wpg2dk` issues errors and warnings related to specific media
+objects with the IDs listed below.  Message IDs not explicitly
+marked as "warning" are errors.
+
+- `invalid_wpgmd` (warning): The WPG metadata is invalid, for
+  example, due to WPG metadata database inconsistencies.
+  `wpg2dk` tries to recover from such issues as good as possible,
+  but regardless of that it is probably advisable to dump
+  affected media objects with this warning to understand what
+  could be wrong.
+
+- `no_wpgmd`: There is no WPG metadata (as listed in section
+  [Converting the WPG Metadata](#converting-the-wpg-metadata))
+  stored in the WPG metadata database.
+
+- `empty_file`: The media file map (command line parameters
+  `--mmap`) maps to an empty string.
+
+- `unmapped_file`: There is no media file map or, more precisely,
+  the specified media file map does not change the pseudo file
+  name derived from the WPG metadata.
+
+- `missing_file`: The media file map maps to an absent media
+  file.
+
+- `duplicate_file`: The media file map maps to a media file name
+  that has been seen already for some different media object.
+
+- `empty_xfile`: The XMP file map (command line parameters
+  `--xmap`) maps to an empty string.
+
+- `unmapped_xfile`: There is no XMP file map or, more precisely,
+  the specified XMP file map does not change the initial media
+  file name.
+
+- `missing_xdir`: The XMP file map maps to an XMP file the
+  directory of which is absent.  Use command line parameter
+  `--mkdir` to avoid this error and let `wpg2dk` create all
+  required directories automatically.
+
+- `existing_xfile`: The XMP file map maps to an existing XMP
+  file.  Use command line parameter `--force` to avoid this error
+  and let `wpg2dk` overwrite that XMP file.
+
+- `duplicate_xfile`: The XMP file map maps to a XMP file name
+  that has been seen already for some different media object.
+
+- `exiftool_warnings` (warning): ExifTool has reported one or
+  more warnings when accessing the media file.
+
+- `exiftool_errors`: ExifTool has reported one or more errors
+  when accessing the media file.
 
 ## Background and Version Information
 
@@ -860,7 +1026,7 @@ attribute:
 *Notes*:
 
 - Table `tblregion` provides face regions in correct orientation
-  for non-rotated photos, that is, where `EXIF:Orientation` is
+  for non-rotated photos, that is, where `IFD0:Orientation` is
   absent or denotes "normal" orientation.  For these, `r.left`
   gives distance between right photo margin and left region
   margin, `r.top` likewise for the top region margin.
@@ -904,7 +1070,7 @@ attribute:
 (for the color label information)
 
 plus attributes mentioned in [Descriptive
-Tags](#descriptive-tags) (for the `People/` tags)
+Tags](#descriptive-tags) (for the `People` people tags)
 
 ### Geotag
 
@@ -1009,8 +1175,8 @@ For `l.locationname`:
 `XMP-exif:GPSLongitudeRef`
 `XMP-exif:GPSLongitude`
 (for the GPS coordinates.  The reference attributes in the
-`XMP-exif` group were actually written on error by digiKam up to
-and including version 7.5.0, see [digiKam bug
+`XMP-exif` group were actually written on error by digiKam
+versions older than 7.6.0, see [digiKam bug
 450982](https://bugs.kde.org/show_bug.cgi?id=450982).)
 
 plus attributes mentioned in [Descriptive
@@ -1050,16 +1216,6 @@ Tags](#descriptive-tags) (for the `Location` geotags)
 `IPTC:ObjectName`
 `XMP-acdsee:Caption`
 `XMP-dc:Title`
-(for the title)
-
-`ExifIFD:UserComment`
-`IFD0:ImageDescription`
-`IPTC:Caption-Abstract`
-`XMP-acdsee:Notes`
-`XMP-dc:Description`
-`XMP-exif:UserComment`
-`XMP-tiff:ImageDescription`
-(for the caption, which is not written by `wpg2dk`)
 
 ### Descriptive Tags
 
@@ -1193,7 +1349,7 @@ not containing any slashes (`l.labelname`)
 
 - Table `tblobject` also provides a column `everflagged` which
   equals `1` if the media has ever been flagged, otherwise
-  `NULL`.
+  `NULL`.  However, that attribute is not extracted by `wpg2dk`.
 
 - You can configure the pick label (defaulting to 3, "Accepted")
   via command line parameter `-pl <pick-label>`.
