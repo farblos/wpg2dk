@@ -1,5 +1,27 @@
 # wpg2dk - Migrate from Windows Photo Gallery to digiKam
 
+## Pros and Cons
+
+As the title says, this tool should help migrating your photos or
+other media and their metadata from Windows Photo Gallery.  In
+contrast to the various other receipts and aproaches you may find
+on this tpoic in the net, it has the following pros and cons:
+
+Pros:
+
+- It should cover *all* metadata manageable in Windows Photo
+  Gallery
+
+- with a consistent approach and
+
+- it should do so correctly.
+
+Cons:
+
+- The migration process is quite technical and currently geared
+  to those that are not afraid of doing things on that thing
+  called "command line".
+
 ## Overview
 
 Windows Photo Gallery (WPG) aka. Windows Live Photo Gallery
@@ -417,8 +439,14 @@ file list written by `wpg2dk` is piped into ExifTool as input.
 In general, the `wpg2dk` commands are completely interchangeable.
 So if you have set up a command line with a complicated map and
 other options for the `extract` command, you can simply exchange
-command `extract` by command `list` call `wpg2dk` with the
+command `extract` by command `list` and call `wpg2dk` with the
 resulting command line.
+
+(incomplete) Use exclusion for excluding certain movies (mpeg,
+wmv, avi, mpg):
+
+    [wpg2dk]$ ./wpg2dk list --quiet --mmap '#2/=/media/archive/' \
+              "$wpgsqlitedir/Pictures.db" -- -X 'm{\.(?i:mpeg|mpg|wmv|avi)$}' |
 
 ## Injecting the WPG Metadata
 
@@ -572,8 +600,23 @@ Specify the following parameter to ExifTool to achieve that
              -IFD0:XPKeywords=              -IPTC:Keywords=            \
              -XMP-acdsee:Categories=        -XMP-dc:Subject=           \
              -XMP-lr:HierarchicalSubject=   -XMP-mediapro:CatalogSets= \
-             -XMP-microsoft:LastKeywordXMP= -XMP:TagsList=             \
-             -q -q -r <media-directory> ...
+             -XMP-microsoft:LastKeywordXMP= -XMP-digiKam:TagsList=     \
+             -m -IFD0:ResolutionUnit=inches -r <media-directory> ...
+
+The parameters `-m -IFD0:ResolutionUnit=inches` used above are
+optional.  They direct Exiftool to ignore and possibly fix minor
+issues (`-m`) and, for that option to have a lasting effect, to
+force-rewrite all media files (`-IFD0:ResolutionUnit=inches`).
+Fixing these minor issues during the tag clean-up has (hopefully)
+the beneficial effect that ExifTool will not bother you with them
+during the following steps.
+
+Using parameter `-m` is not always the best option.  For example,
+if it is used when copying people tags or geotags, it may result
+in empty strings written as tags.  In these cases, one would
+better use the previously described parameters `-q -q`, which
+only suppresses display of warnings, without having other
+side-effects.
 
 For the piped option use the following command:
 
@@ -581,8 +624,8 @@ For the piped option use the following command:
     exiftool -IFD0:XPKeywords=              -IPTC:Keywords=            \
              -XMP-acdsee:Categories=        -XMP-dc:Subject=           \
              -XMP-lr:HierarchicalSubject=   -XMP-mediapro:CatalogSets= \
-             -XMP-microsoft:LastKeywordXMP= -XMP:TagsList=             \
-             -q -q -@ -
+             -XMP-microsoft:LastKeywordXMP= -XMP-digiKam:TagsList=     \
+             -m -IFD0:ResolutionUnit=inches -@ -
 
 ### Merging People Tags
 
@@ -694,22 +737,21 @@ configuration file that declares them as custom attributes:
     );
     1;
 
-Save above lines in a file, say, `xmp-exif-gpsref.pm` that we
+Save above lines to a file, say, `xmp-exif-gpsref.pm` that we
 will reference in the command lines below.
 
-Recursive option:
+All combined we get for the recursive option:
 
-    exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
+    exiftool -config xmp-exif-gpsref.pm                 \
+             -if '-f "$directory/$filename.wpg2dk.xmp"' \
              -if '! %{$self->GetInfo("GPS*")}'          \
-             -config xmp-exif-gpsref.pm                 \
              -XMP-exif:GPSLatitudeRef=                  \
              -XMP-exif:GPSLongitudeRef=                 \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
-             -separator $'\001'                         \
              -XMP-exif:GPSL*itude                       \
              -q -q -r <media-directory> ...
 
-Piped option:
+And for the piped option:
 
     wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -config xmp-exif-gpsref.pm                 \
@@ -717,7 +759,6 @@ Piped option:
              -XMP-exif:GPSLatitudeRef=                  \
              -XMP-exif:GPSLongitudeRef=                 \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
-             -separator $'\001'                         \
              -XMP-exif:GPSL*itude                       \
              -q -q -@ -
 
