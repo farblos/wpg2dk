@@ -2,10 +2,11 @@
 
 ## Pros and Cons
 
-As the title says, this tool should help migrating your photos or
-other media and their metadata from Windows Photo Gallery.  In
-contrast to the various other receipts and aproaches you may find
-on this tpoic in the net, it has the following pros and cons:
+As the title says, this tool should help migrating the metadata
+of your photos or other media from Windows Photo Gallery.  In
+contrast to the various other receipts and approaches you may
+find on this topic in the net, it has the following pros and
+cons:
 
 Pros:
 
@@ -18,9 +19,8 @@ Pros:
 
 Cons:
 
-- The migration process is quite technical and currently geared
-  to those that are not afraid of doing things on that thing
-  called "command line".
+- The whole process is quite technical and currently geared to
+  those who are not afraid of that beast called "command line".
 
 ## Overview
 
@@ -87,7 +87,7 @@ that.
 
 Regardless of operating system, `wpg2dk` requires a recent Perl
 and non-standard Perl modules `DBI`, `DBD::SQLite`, and
-`Image::ExifTool`, which (on GNU/linux) should be available in
+`Image::ExifTool`, which (on GNU/Linux) should be available in
 your distribution's package system or (on any operating system)
 can be downloaded and installed from CPAN.
 
@@ -116,8 +116,8 @@ WPG database and let digiKam pick up these sidecar files.
 
 However, it soon became clear that merging media metadata is a
 highly non-trivial process, so I decided to better delegate that
-to ExifTool with its plethora of featues to select tags, files to
-process, etc.
+to ExifTool with its plethora of features to select tags, files
+to process, etc.
 
 ## Tags, Keywords, Attributes
 
@@ -341,8 +341,8 @@ To do so, we specify a media file map with command line option
     Use command "listerr" to list objects with errors or warnings.
 
 In above example, we have chosen to map only a subset of the
-media objecs (those below subdirectory `/images/00`), just to
-check wether the map works at all.  It does, since now 153 media
+media objects (those below subdirectory `/images/00`), just to
+check whether the map works at all.  It does, since now 153 media
 objects got processed "without any issues" according to the
 report.  So we can now try to map all media objects:
 
@@ -379,7 +379,7 @@ vendors or by WPG itself.  As long as these problems are only
 warnings (which are registered with warning ID
 `exiftool_warnings`), they can be most likely simply ignored.
 
-Futhermore, not all issues called "errors" by `wpg2dk` refer to
+Furthermore, not all issues called "errors" by `wpg2dk` refer to
 real errors that need some extra care or fixing.  Many of these
 errors just mean: "with the current state of metadata it does not
 make any sense to further process this media object."  The best
@@ -510,12 +510,12 @@ attributes" and "DK attributes" in the respective referenced
 sections for details.
 
 Finally, digiKam has the option to manage metadata in sidecar XMP
-files (and these are the main reason why the intermedia XMP files
-are not called just "XMP files").  So in theory you can also use
-ExifTool to inject the intermediate XMP files into the sidecar
-XMP files read from (and written by) digiKam, thus leaving your
-precious media files unchanged.  Which I have not tested nor
-documented.
+files (and these are the main reason why the intermediate XMP
+files are not called just "XMP files").  So in theory you can
+also use ExifTool to inject the intermediate XMP files into the
+sidecar XMP files read from (and written by) digiKam, thus
+leaving your precious media files completely unchanged.  Which I
+have not tested nor documented.
 
 ### Specifying the Files to Process
 
@@ -611,12 +611,12 @@ Fixing these minor issues during the tag clean-up has (hopefully)
 the beneficial effect that ExifTool will not bother you with them
 during the following steps.
 
-Using parameter `-m` is not always the best option.  For example,
-if it is used when copying people tags or geotags, it may result
-in empty strings written as tags.  In these cases, one would
-better use the previously described parameters `-q -q`, which
-only suppresses display of warnings, without having other
-side-effects.
+Using parameter `-m` is not always the best option to get rid of
+warnings.  For example, if it is used when copying people tags or
+geotags, it may result in empty strings written as tags.  In
+these cases, one would better use the previously described
+parameters `-q -q`, which only suppresses display of warnings,
+without having other side-effects.
 
 For the piped option use the following command:
 
@@ -662,7 +662,7 @@ Control-A) and the lengthy `-XMP-digiKam:TagsList+<...` parameter
 following it is required so that we can filter the
 `XMP-digiKam:TagsList` attribute element-wise.  The parameter
 uses ExifTool's advanced formatting feature to remove (`$_ =
-undef`) those elemens that are not people tags (`unless
+undef`) those elements that are not people tags (`unless
 m{^People/}`).
 
 For the piped option use the following command:
@@ -865,7 +865,7 @@ Piped option:
 ExifTool saves copies of the original media files (with suffix
 `_original`) before it modifies their metadata. But it saves them
 only when it modifies them for the first time.  So when you
-inject metadata in multiple steps as described in the preceeding
+inject metadata in multiple steps as described in the preceding
 sections, ExifTool saves only the state of the media files before
 the first modifying step.
 
@@ -1086,7 +1086,7 @@ attribute:
 - `r.personid` for a face region equals zero if and only if that
   face has not been tagged yet ("unknown person").
 
-- All four region parameteres equal zero for people tags that are
+- All four region parameters equal zero for people tags that are
   not attached to a face region, but rather to the whole photo.
 
 - It seems that bit 12 of column `synctstatus` of table
