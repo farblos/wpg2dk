@@ -1,6 +1,6 @@
 # wpg2dk - Migrate from Windows Photo Gallery to digiKam
 
-## Pros and Cons
+## Pros and Cons and Alternatives
 
 As the title says, this tool should help migrating the metadata
 of your photos or other media from Windows Photo Gallery.  In
@@ -13,14 +13,19 @@ Pros:
 - It should cover *all* metadata manageable in Windows Photo
   Gallery
 
-- with a consistent approach and
+- with a consistent approach (no tweaking here and poking there)
+  and
 
-- it should do so correctly.
+- it should do so correctly (no incorrectly rotated face tags).
 
 Cons:
 
 - The whole process is quite technical and currently geared to
   those who are not afraid of that beast called "command line".
+
+Alternatives:
+
+- [Digikam/Tutorials/Switch from Microsoft OneDrive or WLPG to digiKam](https://userbase.kde.org/Digikam/Tutorials/Switch_from_Microsoft_OneDrive_or_WLPG_to_digiKam#Microsoft_image_metadata)
 
 ## Overview
 
@@ -36,7 +41,7 @@ and accurate source of WPG metadata is actually the WPG metadata
 database itself, and not the metadata stored by WPG in the media
 files.
 
-So the overall migration process went like this:
+So the overall migration process goes like this:
 
 1.  Extract the WPG metadata from the database and store it in an
     SQLite database.
@@ -58,6 +63,16 @@ So the overall migration process went like this:
     Metadata](#injecting-the-wpg-metadata).
 
 4.  Reread the image metadata with digiKam.
+
+Ideally and most easily the whole process is done as a one-way
+action where you start with exclusive WPG usage and end up with
+exclusive digiKam usage.  Any past or future switching between
+photo organization software has the potential of introducing
+metadata inconsistencies.  This [digiKam
+tutorial](https://userbase.kde.org/Talk:Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility),
+however, tries to show how digiKam can be configured so that it
+handles metadata in a way as compatible as possible with
+Microsoft products.
 
 This project has been developed and tested on "family photo
 collection scope".  This project has been mainly developed and
@@ -84,6 +99,12 @@ This document describes the migration process as done on Windows
 remaining steps).  It should be possible to complete the whole
 migration process on Windows, but I have not described nor tested
 that.
+
+On Windows, you must still have the WPG metadata database below
+directory `%LOCALAPPDATA%\Microsoft\Windows Live Photo Gallery`
+and it must still be up-to-date with respect to your media files.
+Without that, migration according to this document is impossible
+or cannot be guaranteed to be complete.
 
 Regardless of operating system, `wpg2dk` requires a recent Perl
 and non-standard Perl modules `DBI`, `DBD::SQLite`, and
@@ -234,7 +255,7 @@ So we have more or less this translation table:
 ## Converting the WPG Metadata
 
 `wpg2dk` extracts only metadata from the WPG metadata database
-which can be assigned in the right hand pane of WPG, which are:
+which can be assigned in the right hand pane of WPG, which is:
 
 - People tags
 - Geotag
@@ -243,7 +264,7 @@ which can be assigned in the right hand pane of WPG, which are:
 - Rating
 - Flag
 
-The general idea is that `wpg2dk` always extracts all present
+The general idea is that `wpg2dk` always extracts all available
 metadata from the WPG metadata.  As explained in the next
 section, the rich command line interface of ExifTool can then be
 used to control what parts of that metadata are actually injected
@@ -292,11 +313,12 @@ files.  We will focus on these with command `listerr`:
 
 Command `listerr` with parameter `-M unmapped_file` specified
 lists all media objects having an error with that ID.  The lines
-indented by two blanks provide the UIID of the media object, the
-lines indented by four blanks its (yet unmapped) file name.  Both
-UIIDs and file names use path separators according to the OS
-`wpg2dk` is running on, so on Windows above would list
-backslash-separated UIIDs and file names.
+indented by two blanks provide the user interface ID (UIID) of
+the media object, the lines indented by four blanks its (yet
+unmapped) file name.  Both UIIDs and file names use path
+separators according to the OS `wpg2dk` is running on, so on
+Windows above would list backslash-separated UIIDs and file
+names.
 
 The UIID is some more or less readable and hopefully unique
 identifier that is used to identify media objects with `wpg2dk`.
@@ -305,10 +327,10 @@ different formats for the UIID available.
 
 The WPG metadata refers to the volumes that contain the media
 files by volume ID.  These are the numbers behind the initial
-hash signs seen above.  The rest of the media file names consists
-of their directory path on the volume and their file name as
-found in the WPG metadata.  The result of these three items
-joined together with the path separator in between we call
+hash signs shown above.  The rest of the media file names
+consists of their directory path on the volume and their file
+name as found in the WPG metadata.  The result of these three
+items joined together with the path separator in between we call
 "pseudo file name".
 
 `wpg2dk` does not have the information on the drive letters that
@@ -456,7 +478,7 @@ ExifTool on these recursively to merge them.  Unfortunately, this
 turned out to be not as simple as I initially thought.
 
 The main reason is that one has to decide how to handle merge
-conflicts between the metadata possible present in the media
+conflicts between the metadata possibly present in the media
 files and the metadata present in the intermediate XMP files:
 
 - In the case of GPS coordinates, for example, one would not like
@@ -469,7 +491,7 @@ files and the metadata present in the intermediate XMP files:
 - Finally, for most attributes there is more than one way to
   specify them in the metadata.  `wpg2dk` uses
   `XMP-digiKam:TagsList` to write tags, for example, but digiKam
-  can use at least seven different other attributes to access
+  can use at least seven different other attributes to store
   tags.
 
 As a side note, for some metadata attributes digiKam can be
@@ -881,6 +903,44 @@ For the piped option use the following command:
     exiftool -restore_original \
              -q -q -@ -
 
+## Re-reading the Image Metadata with digiKam
+
+This section is still completely (incomplete).
+
+"Easy" if you haven't yet migrated your pictures to migiKam.
+Needs some caution if you already have migrated pictures and
+probably even edited metadata.
+
+- See also
+  https://userbase.kde.org/Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility
+  (also refer to that from other locations!)
+
+- “Monitor the albums for external changes”
+
+- View -> Include Album Sub-Tree
+
+- Album -> Reread Metadata From Files
+
+  Use with care: This might also remove metadata from the digiKam
+  database that cannot be fully restored from the media files.
+
+- Left side bar -> People View -> Unknown
+
+- Left side bar -> People View -> <people> -> <People>
+  [confirmed] -> right button -> Set as Tag Thumbnail
+
+- Left side bar -> People View -> Settings -> Use YOLO v3
+  detection model
+
+- Tools -> Maintenance ... -> Detect and recognize faces -> Clear
+  and rebuild all training data
+
+- exiftool -XMP-digiKam:TagsList+='_Digikam_Internal_Tags_/Scanned for Faces' *.jpg
+
+- <album> -> right button -> Refresh
+
+- exiftool -XMP-digiKam:TagsList-='_Digikam_Internal_Tags_/Scanned for Faces' *.jpg
+
 ## `wpg2dk` Command Line Reference
 
 (incomplete) Describe commands and their parameters.
@@ -954,10 +1014,13 @@ marked as "warning" are errors.
 - Newer digiKam is better, in particular with respect to face
   detection and recognition.  My Debian GNU/Linux 11 came with
   digiKam 7.1, so I installed the `org.kde.digikam` Flatpak from
-  Flathub with digiKam 7.4.0.
+  Flathub with digiKam 7.4.0.  Later I installed digiKam 7.6.0
+  without the need to change anything in the previously written
+  documentation.
 
 - On my particular setup the digiKam Flatpak has some severe
-  display problems on Wayland.  All fine on X11.
+  display problems on Wayland.  All fine on X11 or if called with
+  `QT_QPA_PLATFORM=xcb`.
 
 - My WPG version is "Windows Photo Gallery 2012", build
   16.4.3528.331 running on Windows 8.1.
@@ -1023,7 +1086,8 @@ attribute:
     select (syncstatus & 2048) = 2048 from tblobject where objectid = ...
 
 *Type*: non-negative integer (`r.personid`), UTF-8 encoded string
-(`p.name`), float in range [0.0, 1.0) (all others)
+(`p.name`), float in range [0.0, 1.0) (region dimensions), zero
+or one (`syncstatus`)
 
 *Target*:
 
