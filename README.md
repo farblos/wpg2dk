@@ -25,7 +25,10 @@ Cons:
 
 Alternatives:
 
-- [Digikam/Tutorials/Switch from Microsoft OneDrive or WLPG to digiKam](https://userbase.kde.org/Digikam/Tutorials/Switch_from_Microsoft_OneDrive_or_WLPG_to_digiKam#Microsoft_image_metadata)
+- [Digikam/Tutorials/Switch from Microsoft OneDrive or WLPG to
+  digiKam](https://userbase.kde.org/Digikam/Tutorials/Switch_from_Microsoft_OneDrive_or_WLPG_to_digiKam#Microsoft_image_metadata)
+  together with [Digikam/Tutorials/Setup of digiKam for Windows
+  compatibility](https://userbase.kde.org/Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility)
 
 ## Overview
 
@@ -69,17 +72,16 @@ action where you start with exclusive WPG usage and end up with
 exclusive digiKam usage.  Any past or future switching between
 photo organization software has the potential of introducing
 metadata inconsistencies.  This [digiKam
-tutorial](https://userbase.kde.org/Talk:Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility),
+tutorial](https://userbase.kde.org/Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility),
 however, tries to show how digiKam can be configured so that it
-handles metadata in a way as compatible as possible with
-Microsoft products.
+handles metadata as compatible as possible with Microsoft
+products.
 
 This project has been developed and tested on "family photo
-collection scope".  This project has been mainly developed and
-tested against JPEG images.  However, the general approach
-described above is not limited to these.  But ExifTool may or may
-not be able to inject the metadata from the intermediate XMP
-files into non-JPEG media files.
+collection scope" with most of the media being JPEG images.
+However, the general approach described above is not limited to
+these as long as ExifTool is able to inject the metadata from the
+intermediate XMP files into non-JPEG media files.
 
 The tool itself would have be better named
 WPG-metadata-database-to-XMP.  Meaning that it is not limited to
@@ -107,10 +109,11 @@ Without that, migration according to this document is impossible
 or cannot be guaranteed to be complete.
 
 Regardless of operating system, `wpg2dk` requires a recent Perl
-and non-standard Perl modules `DBI`, `DBD::SQLite`, and
+version and non-standard Perl modules `DBI`, `DBD::SQLite`, and
 `Image::ExifTool`, which (on GNU/Linux) should be available in
 your distribution's package system or (on any operating system)
-can be downloaded and installed from CPAN.
+can be downloaded and installed from
+[CPAN](https://www.cpan.org/).
 
 For injecting the metadata into the media files as described in
 this readme, one also needs a recent installation of
@@ -119,13 +122,43 @@ this readme, one also needs a recent installation of
 When migrating your media files, use the general common sense for
 such projects.  For example:
 
-- Operate on small subsets of data for testing.
+- Operate on small subsets of the media files for testing.
 
-- Keep backups of your media files.
+- Document when and what exactly you have done to migrate the
+  media files, for example by keeping the transcripts of your
+  terminal sessions and by keeping the results of any relevant
+  `wpg2dk list` commands.
 
-ExifTool is not only useful for the migration itself, but also
-for inspecting and comparing media file metadata.  My favorite
-with respect to that is:
+- Keep backups of your original media files.  ExifTool itself
+  saves all media files before modifying them for the first time
+  as explained in section [Undoing or Comitting ExifTool's
+  Changes](#undoing-or-comitting-exiftools-changes), but more
+  backups are always better.
+
+- Keep *permanent* backups if not of your original media files,
+  then at least of their metadata.  Otherwise you might be in
+  trouble when you notice after a year that, while the majority
+  of the media files migrated just fine, this one small set of
+  photos got their metadata all screwed up.
+
+You can use ExifTool to create recursive metadata-only backups
+with option `-o`, like this:
+
+    exiftool -all:all -o md-backup/%d%f.exv \
+             -r. <media-directory> ...
+
+This would create the backups in a directory structure parallel
+to that of the specified media directories but below directory
+`md-backup`.  For such backups, ExifTool author Phil Harvey
+[recommends](https://exiftool.org/forum/index.php?topic=9458.0#msg48944)
+using metadata file types `EXV` or `EXIF` depending on the media
+format.  In contrast to these, file type `MIE`, while being
+supported only by ExifTool itself, has the advantage of being
+suitable for all media formats.
+
+ExifTool is not only useful for backups or for the migration
+itself, but also for inspecting and comparing media file
+metadata.  My favorite with respect to that is:
 
     exiftool -j -G1 -struct --composite <media-file>
 
@@ -552,7 +585,7 @@ media files with the following generic ExifTool command line:
              [<tag-to-clean-up> ...]                    \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              [<tag-to-copy-from-xmp> ...]               \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 where the command line parameters have the following meaning:
 
@@ -575,7 +608,8 @@ where the command line parameters have the following meaning:
 - `-q -q`: suppress all warnings (or otherwise the more important
   errors may go unnoticed)
 
-- `-r`: process the following media directories recursively
+- `-r.`: process the following media directories recursively
+  including any "hidden" directories
 
 - `<media-directory> ...`: the directories containing the media
   files
@@ -587,7 +621,7 @@ not advisable!):
 
     exiftool -if '-f "$directory/$filename.wpg2dk.xmp"' \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
-             -q -q -r /media/archive
+             -q -q -r. /media/archive
 
 As an alternative to the above approach (called "recursive
 option"), you can feed the output of `wpg2dk list` to ExifTool to
@@ -623,7 +657,7 @@ Specify the following parameter to ExifTool to achieve that
              -XMP-acdsee:Categories=        -XMP-dc:Subject=           \
              -XMP-lr:HierarchicalSubject=   -XMP-mediapro:CatalogSets= \
              -XMP-microsoft:LastKeywordXMP= -XMP-digiKam:TagsList=     \
-             -m -IFD0:ResolutionUnit=inches -r <media-directory> ...
+             -m -IFD0:ResolutionUnit=inches -r. <media-directory> ...
 
 The parameters `-m -IFD0:ResolutionUnit=inches` used above are
 optional.  They direct Exiftool to ignore and possibly fix minor
@@ -672,7 +706,7 @@ ExifTool (recursive option):
              -separator $'\001'                         \
              '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef unless m{^People/}}'           \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 If you do not use that dubious people completeness color label,
 you can omit the parameters related to attributes
@@ -724,7 +758,7 @@ parameters for the recursive option:
              -separator $'\001'                         \
              '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef unless m{^Location/}}'         \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 And these for the piped option:
 
@@ -771,7 +805,7 @@ All combined we get for the recursive option:
              -XMP-exif:GPSLongitudeRef=                 \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-exif:GPSL*itude                       \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 And for the piped option:
 
@@ -797,7 +831,7 @@ Lots of attributes to clean up, one to merge (recursive option):
              -IPTC:ObjectName=                          \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-dc:Title                              \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 Piped option:
 
@@ -827,7 +861,7 @@ option):
              -separator $'\001'                         \
              '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef if m{^(People|Location)/}}'    \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 Piped option:
 
@@ -850,7 +884,7 @@ This one is a bit simpler (recursive option):
              -XMP-xmp:Rating=                           \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-xmp:Rating                            \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 Piped option:
 
@@ -872,7 +906,7 @@ And this one even more simple (recursive option):
              -XMP-digiKam:PickLabel=                    \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-digiKam:PickLabel                     \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 Piped option:
 
@@ -882,7 +916,7 @@ Piped option:
              -XMP-digiKam:PickLabel                     \
              -q -q -@ -
 
-### Undoing ExifTool's Changes
+### Undoing or Comitting ExifTool's Changes
 
 ExifTool saves copies of the original media files (with suffix
 `_original`) before it modifies their metadata. But it saves them
@@ -895,12 +929,24 @@ You can restore the original media files with the following
 command (recursive option):
 
     exiftool -restore_original \
-             -q -q -r <media-directory> ...
+             -q -q -r. <media-directory> ...
 
 For the piped option use the following command:
 
     wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -restore_original \
+             -q -q -@ -
+
+When you are sure that you do not need the original media files
+any longer, you can remove them with (recursive option):
+
+    exiftool -delete_original \
+             -q -q -r. <media-directory> ...
+
+or (piped option):
+
+    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
+    exiftool -delete_original \
              -q -q -@ -
 
 ## Re-reading the Image Metadata with digiKam
@@ -913,7 +959,6 @@ probably even edited metadata.
 
 - See also
   https://userbase.kde.org/Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility
-  (also refer to that from other locations!)
 
 - “Monitor the albums for external changes”
 
