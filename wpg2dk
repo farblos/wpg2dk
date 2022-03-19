@@ -144,7 +144,7 @@ sub usage
   exit( 2 );
 }
 
-# convert the specified structure to a string
+# convert the specified object to a string
 sub s2s
 {
   local $Data::Dumper::Indent = 0;
@@ -173,19 +173,19 @@ sub cavmap
     my $fn = "";
     if ( $me =~ /^s\{.*\}\{.*\}[a-z]*$/m ) {
       if ( ! defined( do { package _wpg2dk; eval( "\$fn =~ $me" ) } ) ) {
-        usage( "Invalid map entry \"$me\" (", bue( $@ ), ")" );
+        usage( "Invalid map entry \"$me\" specified (", bue( $@ ), ")." );
       }
     }
     elsif ( $me =~ /^(.*?)(?:=(.*))?$/m ) {
       my ( $search, $repl ) = ( $1, $2 );
       $repl //= "";
-      if ( ! defined( do { package _wpg2dk; eval( '$fn =~ s/$search/$repl/g' ) } ) ) {
-        usage( "Invalid map entry \"$me\" (", bue( $@ ), ")" );
+      if ( ! defined( do { package _wpg2dk; eval( '$fn =~ s/\Q$search\E/$repl/g' ) } ) ) {
+        usage( "Invalid map entry \"$me\" specified (", bue( $@ ), ")." );
       }
       $me = [ $me, $search, $repl ];
     }
     else {
-      usage( "Invalid map entry \"$me\"" );
+      usage( "Invalid map entry \"$me\" specified." );
     }
   }
 }
@@ -206,7 +206,7 @@ sub aplmap
     }
     else {
       my ( $me, $search, $repl ) = @{$me};
-      if ( ! defined( do { package _wpg2dk; eval( '$fn =~ s/$search/$repl/g' ) } ) ) {
+      if ( ! defined( do { package _wpg2dk; eval( '$fn =~ s/\Q$search\E/$repl/g' ) } ) ) {
         error( "Cannot apply map entry \"$me\" to \"$fn\" (", bue( $@ ), ")" );
       }
     }
@@ -267,7 +267,7 @@ sub readtree
     $node->{'warnings'} = [];
 
     if ( (! defined( $id )) || ($id <= 0) ) {
-      warn( "Cannot process undefined or non-positive node ID (", s2s( $node ), ")" );
+      warn( "Cannot process undefined or non-positive node ID (", s2s( $node ), ").\n" );
       next;
     }
 
@@ -696,7 +696,7 @@ my  %xmpopts = (
                      "m|mmap=s"         => \@mmap,
                      "x|xmap=s"         => \@xmap,
                      "i|idtype=s"       => \$idtp,
-                     "e|error_format=s" => \$errfmt,
+                     "e|error_format=s" => \$errfmt,                    # "listerr" only
                      "M|message_id=s"   => \@msgids,                    # "listerr" only
                        "pccl=s"         => \$xmpopts{'pccl'},           # "extract" only
                      "r|geotagroot=s"   => \$xmpopts{'gtr'},            # "extract" only
@@ -777,7 +777,7 @@ my @uiidms = @ARGV;
       $prvnot = 1;
     }
     elsif ( ($uiidm eq "-X") && ($prvnot) ) {
-      usage( "Invalid double negation in UIID matchers." );
+      usage( "Invalid double inversion in UIID matchers specified." );
     }
     else {
       $prvnot = 0;
@@ -789,12 +789,12 @@ my @uiidms = @ARGV;
         $uiidm = $uiidre;
       }
       else {
-        usage( "Invalid UIID matcher \"$uiidm\" (", bue( $@ ), ")" );
+        usage( "Invalid UIID matcher \"$uiidm\" specified (", bue( $@ ), ")." );
       }
     }
   }
   if ( $prvnot ) {
-    usage( "Invalid trailing negation in UIID matchers." );
+    usage( "Invalid trailing inversion in UIID matchers specified." );
   }
 }
 
@@ -807,6 +807,7 @@ my $exiftool = new Image::ExifTool();
 
 my @errors   = ();
 my @warnings = ();
+
 $SIG{'__WARN__'} = sub { push( @warnings, $_[0] ) };
 
 eval {
