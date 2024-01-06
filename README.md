@@ -65,17 +65,19 @@ So the overall migration process goes like this:
     See section [Injecting the WPG
     Metadata](#injecting-the-wpg-metadata).
 
-4.  Reread the image metadata with digiKam.
+4.  Read the image metadata with digiKam.
+
+    See section [Reading the Image Metadata with
+    digiKam](#reading-the-image-metadata-with-digikam).
 
 Ideally and most easily the whole process is done as a one-way
 action where you start with exclusive WPG usage and end up with
 exclusive digiKam usage.  Any past or future switching between
 photo organization software has the potential of introducing
-metadata inconsistencies.  This [digiKam
+metadata inconsistencies.  In contrast to that, this [digiKam
 tutorial](https://userbase.kde.org/Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility),
-however, tries to show how digiKam can be configured so that it
-handles metadata as compatible as possible with Microsoft
-products.
+tries to show how digiKam can be configured so that it handles
+metadata as compatible as possible with Microsoft products.
 
 This project has been developed and tested on "family photo
 collection scope" with most of the media being JPEG images.
@@ -84,11 +86,10 @@ these as long as ExifTool is able to inject the metadata from the
 intermediate XMP files into non-JPEG media files.
 
 The tool itself would have be better named
-WPG-metadata-database-to-XMP.  Meaning that it is not limited to
+WPG-metadata-database-to-XMP, meaning that it is not limited to
 only digiKam as migration target.  Some of the generated XMP
-attributes are specific to digiKam, however, but at least
-ExifTool should be able to convert these to non-digiKam-specific
-attributes.
+attributes are specific to digiKam, but at least ExifTool should
+be able to convert these to non-digiKam-specific attributes.
 
 For the the tool versions I have used for developing and testing
 `wpg2dk` and this readme, see section [Background and Version
@@ -186,8 +187,8 @@ So we have more or less this translation table:
 
 | WPG, digiKam, `wpg2dk` | ExifTool | `wpg2dk`  |
 |:-----------------------|:---------|:----------|
-|                        | tag      | attribute |
 | tag                    | keyword  |           |
+|                        | tag      | attribute |
 
 ## Extracting the WPG Metadata
 
@@ -488,20 +489,46 @@ been created (or will be created) to STDOUT:
     3121
 
 Command `list` is particularly useful for calling ExifTool in the
-so-called "piped option" as shown in the next section, where the
-file list written by `wpg2dk` is piped into ExifTool as input.
+so-called "list option" as shown in the next section, where the
+file list written by `wpg2dk` is used as input for ExifTool.
+
+By default `wpg2dk` processes all media objects it finds the WPG
+metadata database.  To select only a subset either by inclusion
+or exclusion, you can specify patterns matching their user
+interface ID (UIID) on the command line.  For example, the
+following selects all media objects from subdirectory
+`.../images/00`:
+
+    [wpg2dk]$ ./wpg2dk list --mmap '#2/=/media/archive/' \
+              "$wpgsqlitedir/Pictures.db" 'm{/images/00/}' > /dev/null
+    Media objects statistics:
+    Total:      4369, with errors:  1248, with warnings:     3, OK:  3118
+    Selected:    249, with errors:    96, with warnings:     0, OK:   153
+    Media objects with errors have not been processed.
+
+In above example, the row labelled `Total:` displays statistics
+for all media objects, while the row labelled `Selected:`
+statistics for the media objects from subdirectory
+`.../images/00`, which are matched by UIID selector
+`'m{/images/00/}'`.
+
+To exclude certain media objects from processing, prefix the UIID
+selector with parameter `-X`.  With the following command line,
+for example, you can suppress processing of certain movie types,
+which ExifTool cannot write:
+
+    [wpg2dk]$ ./wpg2dk list --mmap '#2/=/media/archive/' \
+              "$wpgsqlitedir/Pictures.db" -X 'm{\.(?i:mpeg|mpg|wmv|avi)$}' |
+    Media objects statistics:
+    Total:      4369, with errors:  1248, with warnings:     3, OK:  3118
+    Selected:   4344, with errors:  1246, with warnings:     3, OK:  3095
+    Media objects with errors have not been processed.
 
 In general, the `wpg2dk` commands are completely interchangeable.
-So if you have set up a command line with a complicated map and
-other options for the `extract` command, you can simply exchange
-command `extract` by command `list` and call `wpg2dk` with the
-resulting command line.
-
-(incomplete) Use exclusion for excluding certain movies (mpeg,
-wmv, avi, mpg):
-
-    [wpg2dk]$ ./wpg2dk list --quiet --mmap '#2/=/media/archive/' \
-              "$wpgsqlitedir/Pictures.db" -- -X 'm{\.(?i:mpeg|mpg|wmv|avi)$}' |
+So if you have set up a command line with a complicated map,
+exclusions, and other options for the `extract` command, you can
+simply exchange command `extract` by command `list` and call
+`wpg2dk` with the resulting command line.
 
 ## Injecting the WPG Metadata
 
@@ -528,10 +555,10 @@ files and the metadata present in the intermediate XMP files:
   tags.
 
 As a side note, for some metadata attributes digiKam can be
-configured (in `Settings` -> `Configure digiKam` -> `Metadata` ->
-`Advanced`) how to exactly access the attributes.  I decided to
-leave that all on default and rather use ExifTool to come out
-with (hopefully) unambiguous metadata.
+configured (in `Settings` &rarr; `Configure digiKam` &rarr;
+`Metadata` &rarr; `Advanced`) how to exactly access the
+attributes.  I decided to leave that all on default and rather
+use ExifTool to come out with (hopefully) unambiguous metadata.
 
 In the next section I first provide the bare skeleton ExifTool
 command to specify which intermediate XMP files to merge into
@@ -605,8 +632,9 @@ where the command line parameters have the following meaning:
   the intermediate XMP files - to be detailed in the following
   sections.  If not specified, all attributes are merged.
 
-- `-q -q`: suppress all warnings (or otherwise the more important
-  errors may go unnoticed)
+- `-q -q`: suppress all warnings.  There might be plenty of
+  these, and without these options the more important errors may
+  go unnoticed.
 
 - `-r.`: process the following media directories recursively
   including any "hidden" directories
@@ -624,22 +652,30 @@ not advisable!):
              -q -q -r. /media/archive
 
 As an alternative to the above approach (called "recursive
-option"), you can feed the output of `wpg2dk list` to ExifTool to
-specify the files it should process (called "piped option"):
+option"), we can feed the output of `wpg2dk list` to ExifTool to
+specify the files it should process (called "list option").
+Suppose we have generated the intermediate XMP files like this:
 
-    # generate intermediate XMP files
     wpg2dk extract <map-and-other-parameters>
 
-    # list file processed above and feed that to ExifTool
-    wpg2dk list <exactly-same-parameters-as-above> |
+Then we can change that command line to `wpg2dk` command `list`
+and create a list of processed media files named `media.list` in
+the current working directory:
+
+    wpg2dk list <map-and-other-parameters> > media.list
+
+That file we can then use to drive ExifTool processing, like
+this:
+
     exiftool [<tag-to-clean-up> ...]                    \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              [<tag-to-copy-from-xmp> ...]               \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 where the only ExifTool command line parameter `-@ -` not yet
-described directs ExifTool to read all remaining parameters,
-namely the names of the media files to process, from the pipe.
+described directs ExifTool to read the names of the media files
+to process from STDIN which, in our case, comes from file
+`media.list`.
 
 ### Cleaning Up all Tags
 
@@ -674,14 +710,13 @@ these cases, one would better use the previously described
 parameters `-q -q`, which only suppresses display of warnings,
 without having other side-effects.
 
-For the piped option use the following command:
+For the list option use the following command:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -IFD0:XPKeywords=              -IPTC:Keywords=            \
              -XMP-acdsee:Categories=        -XMP-dc:Subject=           \
              -XMP-lr:HierarchicalSubject=   -XMP-mediapro:CatalogSets= \
              -XMP-microsoft:LastKeywordXMP= -XMP-digiKam:TagsList=     \
-             -m -IFD0:ResolutionUnit=inches -@ -
+             -m -IFD0:ResolutionUnit=inches -@ - < media.list
 
 ### Merging People Tags
 
@@ -721,9 +756,8 @@ uses ExifTool's advanced formatting feature to remove (`$_ =
 undef`) those elements that are not people tags (`unless
 m{^People/}`).
 
-For the piped option use the following command:
+For the list option use the following command:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -XMP-MP:RegionInfoMP=                      \
              -XMP-mwg-rs:RegionInfo=                    \
              -XMP-digiKam:ColorLabel=                   \
@@ -734,7 +768,7 @@ For the piped option use the following command:
              -separator $'\001'                         \
              '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef unless m{^People/}}'           \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 ### Merging Geotags
 
@@ -760,14 +794,13 @@ parameters for the recursive option:
               $_ = undef unless m{^Location/}}'         \
              -q -q -r. <media-directory> ...
 
-And these for the piped option:
+And these for the list option:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -separator $'\001'                         \
              '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef unless m{^Location/}}'         \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 Since the GPS coordinates determined from WPG's geotags are
 rather coarse, any existing GPS coordinates should not be
@@ -807,16 +840,15 @@ All combined we get for the recursive option:
              -XMP-exif:GPSL*itude                       \
              -q -q -r. <media-directory> ...
 
-And for the piped option:
+And for the list option:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -config xmp-exif-gpsref.pm                 \
              -if '! %{$self->GetInfo("GPS*")}'          \
              -XMP-exif:GPSLatitudeRef=                  \
              -XMP-exif:GPSLongitudeRef=                 \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-exif:GPSL*itude                       \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 ### Merging Captions
 
@@ -833,9 +865,8 @@ Lots of attributes to clean up, one to merge (recursive option):
              -XMP-dc:Title                              \
              -q -q -r. <media-directory> ...
 
-Piped option:
+List option:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -IFD0:ImageDescription=                    \
              -IFD0:XPTitle=                             \
              -XMP-dc:Description=                       \
@@ -844,7 +875,7 @@ Piped option:
              -IPTC:ObjectName=                          \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-dc:Title                              \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 ### Merging Descriptive Tags
 
@@ -863,14 +894,13 @@ option):
               $_ = undef if m{^(People|Location)/}}'    \
              -q -q -r. <media-directory> ...
 
-Piped option:
+List option:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -addTagsFromFile '%d%F.wpg2dk.xmp'         \
              -separator $'\001'                         \
              '-XMP-digiKam:TagsList+<${XMP-digiKam:TagsList@;
               $_ = undef if m{^(People|Location)/}}'    \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 ### Merging Ratings
 
@@ -886,9 +916,8 @@ This one is a bit simpler (recursive option):
              -XMP-xmp:Rating                            \
              -q -q -r. <media-directory> ...
 
-Piped option:
+List option:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -IFD0:Rating=                              \
              -IFD0:RatingPercent=                       \
              -XMP-acdsee:Rating=                        \
@@ -896,7 +925,7 @@ Piped option:
              -XMP-xmp:Rating=                           \
              -tagsFromFile '%d%F.wpg2dk.xmp'            \
              -XMP-xmp:Rating                            \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 ### Merging Flags
 
@@ -908,13 +937,12 @@ And this one even more simple (recursive option):
              -XMP-digiKam:PickLabel                     \
              -q -q -r. <media-directory> ...
 
-Piped option:
+List option:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -XMP-digiKam:PickLabel=                    \
              -addTagsfromfile '%d%F.wpg2dk.xmp'         \
              -XMP-digiKam:PickLabel                     \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 ### Undoing or Comitting ExifTool's Changes
 
@@ -931,11 +959,10 @@ command (recursive option):
     exiftool -restore_original \
              -q -q -r. <media-directory> ...
 
-For the piped option use the following command:
+For the list option use the following command:
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -restore_original \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
 When you are sure that you do not need the original media files
 any longer, you can remove them with (recursive option):
@@ -943,52 +970,156 @@ any longer, you can remove them with (recursive option):
     exiftool -delete_original \
              -q -q -r. <media-directory> ...
 
-or (piped option):
+or (list option):
 
-    wpg2dk list <exactly-same-parameters-as-used-for-extraction> |
     exiftool -delete_original \
-             -q -q -@ -
+             -q -q -@ - < media.list
 
-## Re-reading the Image Metadata with digiKam
+## Reading the Image Metadata with digiKam
 
-This section is still completely (incomplete).
+If you start digiKam with the media files prepared in the
+previous section *and* if digiKam has not yet seen these media
+files before, then digiKam should read their metadata and store
+it in its own metadata database.  Since we have tried hard to
+avoid metadata inconsistencies by using only a limited set of
+metadata attributes in the media files, digiKam's metadata should
+be likewise consistent.
 
-"Easy" if you haven't yet migrated your pictures to migiKam.
-Needs some caution if you already have migrated pictures and
-probably even edited metadata.
+The problems start if you have, for example, processed the media
+files already with digiKam *before* injecting the WPG metadata as
+described above.  Depending on your digiKam configuration, one of
+the following can happen then:
 
-- See also
-  https://userbase.kde.org/Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility
+- digiKam does not notice and pick up the injected metadata at
+  all,
 
-- “Monitor the albums for external changes”
+- digiKam picks up the injected metadata from the media files and
+  overwrites completely what it has in its own database, or
 
-- View -> Include Album Sub-Tree
+- digiKam tries to merge the injected metadata with what it has
+  in its own database.
 
-- Album -> Reread Metadata From Files
+None of the above options really seems desirable and so I will
+not go into the details on how to configure digiKam properly to
+achieve any of the above.  User Sdx has some material on this in
+his tutorial [Digikam/Tutorials/Setup of digiKam for Windows
+compatibility](https://userbase.kde.org/Digikam/Tutorials/Setup_of_digiKam_for_Windows_compatibility).
 
-  Use with care: This might also remove metadata from the digiKam
-  database that cannot be fully restored from the media files.
+Instead, I describe in the next section what minimum actions and
+configuration are necessary in a freshly started, unconfigured
+digiKam with freshly prepared media files.  If you have used
+digiKam previously or during the recommended test phase of the
+migration, you can reset it to an unconfigured state as described
+in [this section](#resetting-digikam-to-an-unconfigured-state).
 
-- Left side bar -> People View -> Unknown
+### Minimum digiKam Configuration
 
-- Left side bar -> People View -> <people> -> <People>
-  [confirmed] -> right button -> Set as Tag Thumbnail
+The following describes a mix a my preferences and
 
-- Left side bar -> People View -> Settings -> Use YOLO v3
-  detection model
+1. During the initial digiKam set-up wizard, leave everything at
+   default and `Next` through.
 
-- Tools -> Maintenance ... -> Detect and recognize faces -> Clear
-  and rebuild all training data
+2. Select to download the binary files required for the face
+   engine and the red eye removal tool.
+
+3. In menu `View` ensure `Include Album Sub-Tree` and `Include
+   Tag Sub-Tree` are both check-marked.
+
+That's it for the minimum.
+
+### Advanced Face-Recognition Configuration
+
+You open digiKam's face recognition panels in the left side bar,
+tab `People`.  In the `Settings` tab of the lower left panel,
+select `Use YOLO v3 detection model` and `Work on all process
+cores`.
+
+Expand the `People` tree on the upper left panel.  For the known
+people listed there, you can select their names.  From the
+thumbnails that show up in the right panel, you can select one as
+tag thumbnail by right-clicking it and selecting `Set as Tag
+Thumbnail`.
+
+To train digiKam's face recognition from the face regions you
+have marked already in WPG, go to `Tools` &rarr; `Maintenance
+...`.  There expand `Detect and recognize faces`, select it, and
+select `Clear and rebuild all training data`.  Select `OK` and
+wait for the rebuild to complete.
+
+Rectangles that WPG has detected already as faces but which have
+not yet been assigned people in WPG may now be recognized by
+digiKam and moved from category `Unknown` to `Unconfirmed` in the
+`People` tree on the upper left panel.
+
+The face detection done by digiKam can be rather time and
+resource consuming, much more than usually on WPG (at least for
+something WPG should be better).  In addition, I have not found
+any documentation on how digiKam's face recognition handles
+existing face rectangles detected, for example, by WPG.
+
+Likewise, I have not found documentation what it means precisely
+to "skip images already scanned" when detecting faces, as one can
+select in the `Workflow` tab of the lower left face recognition
+panel.  A bit of reverse engineering showed, however, that
+digiKam uses an internal tag named
+`_Digikam_Internal_Tags_/Scanned for Faces` to mark media files
+which it has scanned for face rectangles.
+
+Since the tag is internal, digiKam does not *export* it to media
+files.  But it *imports* that tag happily from media files, if
+present, which can be used to exempt media files that already
+have been scanned completely by WPG.
+
+This section is rather (incomplete).
 
 - exiftool -XMP-digiKam:TagsList+='_Digikam_Internal_Tags_/Scanned for Faces' *.jpg
 
+- `Settings` &rarr; `Configure digiKam` &rarr; `Metadata` &rarr;
+  `Behavior` &rarr; `Rescan file when files are modified`
+
 - <album> -> right button -> Refresh
 
-- exiftool -XMP-digiKam:TagsList-='_Digikam_Internal_Tags_/Scanned for Faces' *.jpg
+As soon as digiKam has picked up the `Scanned for Faces` tag, you
+should remove it from the media files again, like this:
+
+    exiftool -XMP-digiKam:TagsList-='_Digikam_Internal_Tags_/Scanned for Faces' *.jpg
+
+### Resetting digiKam to an Unconfigured State
+
+If you have used digiKam previously or during the recommended
+test phase of the migration, you can reset it to an unconfigured
+state as follows:
+
+1. Find out the location of the database files in digiKam.  To do
+   so, navigate to `Settings` &rarr; `Configure digiKam` &rarr;
+   `Database Settings`.  If you use the default database type
+   `SQLite` (and only this case I cover here), the location of
+   the database files should be mentioned at the bottom of the
+   configuration panel.
+
+2. Exit digiKam.
+
+3. In the directory determined above, remove or rename all files
+   with extension `.db`.  In my installation, there are four of
+   these: `digikam4.db`, `recognition.db`, `similarity.db`, and
+   `thumbnails-digikam.db`.
+
+4. Restart digiKam.  It might present a dialog that its SQLite
+   core database was not found and that, to reset the
+   configuration, you need to remove the `digikamrc` file.  Take
+   note of that file.  In my installation, it is named
+   `~/.var/app/org.kde.digikam/config/digikamrc`.
+
+5. OK the dialog, cancel the next one, if any, remove the file
+   from the previous step and restart digiKam again.
+
+Of course, you loose all previous digiKam configuration and
+metadata when doing as described above, so beware.
 
 ## `wpg2dk` Command Line Reference
 
-(incomplete) Describe commands and their parameters.
+This section is almost completely incomplete.  Refer to the
+source of `wpg2dk` and to above tutorial for the time being.
 
 For easier exchange of commands on the command line, all commands
 accept all parameters, even if the parameters do not have any
